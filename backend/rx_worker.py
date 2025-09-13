@@ -44,6 +44,8 @@ class RxPartylineWorker:
         self.Gst.init(None)
         self.pipeline = self.Gst.Pipeline.new("rx-mix")
         self._build()
+        self._stop_evt = threading.Event()
+        self._bus_thread = None
 
     def _build(self):
         Gst = self.Gst
@@ -131,10 +133,8 @@ class RxPartylineWorker:
         # Dynamic pads per SSRC
         self.demux.connect("pad-added", self._on_pad_added)
 
-        # Bus to catch messages (including level element messages)
+        # Prepare bus for polling (we run our own bus thread)
         self.bus = self.pipeline.get_bus()
-        self.bus.add_signal_watch()
-        self.bus.connect("message", self._on_bus)
 
     def _on_pad_added(self, demux, pad):
         Gst = self.Gst
@@ -233,41 +233,50 @@ class RxPartylineWorker:
         lvl_name = f"level_{ssrc}"
         lvl.set_property("name", lvl_name)
 
-    def _on_bus(self, _bus, msg):
-        t = msg.type
-        if t == self.Gst.MessageType.ERROR:
-            err, dbg = msg.parse_error()
-            print("RX ERROR:", err, dbg)
-        elif t == self.Gst.MessageType.EOS:
-            print("RX EOS")
-        elif t == self.Gst.MessageType.ELEMENT:
-            s = msg.get_structure()
-            if s and s.get_name() == "level":
-                # Find which level element emitted this; parse RMS in dB
-                src = msg.src
-                name = src.get_name() if src else None
-                # structure fields: "rms", "peak", "decay" arrays per channel
-                try:
-                    rms = s.get_value("rms")
-                    if isinstance(rms, (list, tuple)) and rms:
-                        db = float(rms[0])
-                    else:
-                        db = None
-                except Exception:
-                    db = None
-                if name == "level_mix":
-                    self.mix_level_db = db
-                elif name and name.startswith("level_"):
+    def _bus_loop(self):
+        Gst = self.Gst
+        bus = self.bus
+        mask = Gst.MessageType.ERROR | Gst.MessageType.EOS | Gst.MessageType.ELEMENT
+        while not self._stop_evt.is_set():
+            msg = bus.timed_pop_filtered(100 * Gst.MSECOND, mask)
+            if not msg:
+                continue
+            t = msg.type
+            if t == Gst.MessageType.ERROR:
+                err, dbg = msg.parse_error()
+                print("RX ERROR:", err, dbg)
+            elif t == Gst.MessageType.EOS:
+                print("RX EOS")
+            elif t == Gst.MessageType.ELEMENT:
+                s = msg.get_structure()
+                if s and s.get_name() == "level":
+                    src = msg.src
+                    name = src.get_name() if src else None
                     try:
-                        ssrc = int(name.split("_", 1)[1])
-                        if ssrc in self.active_peers:
-                            self.active_peers[ssrc]["level_db"] = db
-                            self.active_peers[ssrc]["last_ts"] = time.time()
+                        rms = s.get_value("rms")
+                        if isinstance(rms, (list, tuple)) and rms:
+                            db = float(rms[0])
+                        else:
+                            db = None
                     except Exception:
-                        pass
+                        db = None
+                    if name == "level_mix":
+                        self.mix_level_db = db
+                    elif name and name.startswith("level_"):
+                        try:
+                            ssrc = int(name.split("_", 1)[1])
+                            if ssrc in self.active_peers:
+                                self.active_peers[ssrc]["level_db"] = db
+                                self.active_peers[ssrc]["last_ts"] = time.time()
+                        except Exception:
+                            pass
 
     def start(self):
+        self._stop_evt.clear()
         self.pipeline.set_state(self.Gst.State.PLAYING)
+        if not self._bus_thread or not self._bus_thread.is_alive():
+            self._bus_thread = threading.Thread(target=self._bus_loop, daemon=True)
+            self._bus_thread.start()
 
     def stop(self):
         # Try to gracefully finalize WAV (if used)
@@ -277,6 +286,12 @@ class RxPartylineWorker:
             bus.timed_pop_filtered(2 * self.Gst.SECOND, self.Gst.MessageType.EOS)
         except Exception:
             pass
+        self._stop_evt.set()
+        if self._bus_thread and self._bus_thread.is_alive():
+            try:
+                self._bus_thread.join(timeout=1.0)
+            except Exception:
+                pass
         self.pipeline.set_state(self.Gst.State.NULL)
 
     def peers_snapshot(self):

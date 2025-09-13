@@ -110,6 +110,27 @@ export default function App() {
       .then(refreshStatus)
       .catch((e) => setErr(e.message || String(e)));
 
+  const downloadMix = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/download/mix`, { cache: "no-store" });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`download -> ${res.status}${t ? " " + t : ""}`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "mix.wav";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      setErr(e.message || String(e));
+    }
+  };
+
   const badge = (ok, label) => (
     <span
       style={{
@@ -313,13 +334,7 @@ export default function App() {
           <button type="button" onClick={stopTx}>Stop TX</button>
           <button type="button" onClick={startRx}>Start RX</button>
           <button type="button" onClick={stopRx}>Stop RX</button>
-          <a
-            href={`${API_BASE}/download/mix`}
-            style={{ textDecoration: "none" }}
-            download
-          >
-            <button type="button">Download mix</button>
-          </a>
+          <button type="button" onClick={downloadMix}>Download mix</button>
         </div>
       </form>
 
