@@ -12,7 +12,14 @@ class RxPartylineWorker:
       - Exposes peers (name/ssrc/packets/level/last-seen)
     """
     def __init__(self, group, port, sink_mode, sink_path: Path, ssrc_names: dict, iface: str | None):
-        import gi
+        # Ensure GI bindings are importable even inside a venv without system-site-packages
+        try:
+            import gi  # type: ignore
+        except ModuleNotFoundError:
+            import sys
+            # Common system path for python3-gi on Debian/RPi OS
+            sys.path.append("/usr/lib/python3/dist-packages")
+            import gi  # type: ignore
         gi.require_version('Gst', '1.0')
         gi.require_version('GObject', '2.0')
         from gi.repository import Gst, GObject

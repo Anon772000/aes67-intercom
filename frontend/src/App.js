@@ -59,22 +59,20 @@ export default function App() {
     const t1 = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return; // pause when hidden
       apiGet("/rx/metrics")
-        .then((m) => {
-          setMetrics(m);
-          if (typeof m.mix_level_db === "number") setMixDb(m.mix_level_db);
-          setErr("");
-        })
+          .then((m) => {
+            setMetrics(m);
+            if (typeof m.mix_level_db === "number") setMixDb(m.mix_level_db);
+          })
         .catch((e) => setErr(e.message || String(e)));
     }, 500);
 
     const t2 = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return; // pause when hidden
       apiGet("/rx/peers")
-        .then((r) => {
-          setPeers(r.peers || []);
-          if (typeof r.mix_level_db === "number") setMixDb(r.mix_level_db);
-          setErr("");
-        })
+          .then((r) => {
+            setPeers(r.peers || []);
+            if (typeof r.mix_level_db === "number") setMixDb(r.mix_level_db);
+          })
         .catch((e) => setErr(e.message || String(e)));
     }, 500);
 

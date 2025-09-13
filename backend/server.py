@@ -65,7 +65,7 @@ def start_rx_only():
         if "gi" in err.lower():
             hint = (
                 "GStreamer Python bindings not found. Install: "
-                "sudo apt update && sudo apt install -y python3-gi gir1.2-gst-1.0 "
+                "sudo apt update && sudo apt install -y python3-gi gir1.2-gstreamer-1.0 "
                 "gstreamer1.0-tools gstreamer1.0-alsa gstreamer1.0-plugins-base "
                 "gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly"
             )
