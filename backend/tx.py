@@ -41,7 +41,15 @@ def start_tx(cfg: dict):
         dev = _normalize_alsa_device(dev_str or "")
         if dev.startswith("hw:"):
             dev = "plughw:" + dev.split(":",1)[1]
-        return ["alsasrc"] + ([f"device={dev}"] if dev else [])
+        # Add conservative buffering + timestamps for stable capture
+        props = [
+            "alsasrc",
+            *( [f"device={dev}"] if dev else [] ),
+            "do-timestamp=true",
+            "buffer-time=200000",
+            "latency-time=20000",
+        ]
+        return props
 
     if (cfg.get("tx_source") or "sine") == "mic":
         user_dev = (cfg.get("tx_mic_device") or "").strip()
@@ -59,6 +67,7 @@ def start_tx(cfg: dict):
             *src_chain,
             "!","audioconvert","!","audioresample",
             "!",*raw_caps,                # ensure mono/48k/S16LE
+            "!","queue",
             "!","audioconvert",          # convert endianness for RTP L16
             "!","audio/x-raw,format=S16BE",
             "!","rtpL16pay","pt=96","min-ptime=4000000","max-ptime=4000000",f"ssrc={ssrc}","!",

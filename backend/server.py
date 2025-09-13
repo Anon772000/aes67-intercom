@@ -14,6 +14,7 @@ app = Flask(__name__, static_folder="../frontend/build", static_url_path="")
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
 
 rx_worker = None
+mic_mon_proc = None
 rxmon = RxMonitor()
 
 # ---------- API ----------
@@ -209,6 +210,75 @@ def alsa_devices():
         return 4
     devices.sort(key=score)
     return jsonify({"devices": devices[:40]})
+
+# ---------- Mic monitor (listen locally) ----------
+def _norm_alsa(dev: str) -> str:
+    d = (dev or "").strip()
+    if not d:
+        return d
+    if d.startswith(("hw:", "plughw:", "default", "sysdefault", "dsnoop:")):
+        return d
+    import re
+    m = re.match(r"^hw(\d+)[,:](\d+)$", d)
+    if m:
+        return f"hw:{m.group(1)},{m.group(2)}"
+    if re.fullmatch(r"\d+", d):
+        return f"hw:{d}"
+    m = re.match(r"^(\d+)[,:](\d+)$", d)
+    if m:
+        return f"hw:{m.group(1)},{m.group(2)}"
+    return d
+
+@app.post("/monitor/mic/start")
+def mic_monitor_start():
+    global mic_mon_proc
+    try:
+        if mic_mon_proc and mic_mon_proc.poll() is None:
+            return jsonify({"ok": True, "monitoring": True, "note": "already running"})
+        cfg = load_config()
+        dev = _norm_alsa((cfg.get("tx_mic_device") or ""))
+        # prefer plughw for hw devices
+        if dev.startswith("hw:"):
+            dev = "plughw:" + dev.split(":",1)[1]
+        base = [
+            "gst-launch-1.0","-q","alsasrc",
+            *( [f"device={dev}"] if dev else [] ),
+            "do-timestamp=true","buffer-time=200000","latency-time=20000",
+            "!","audioconvert","!","audioresample","!","autoaudiosink","sync=false"
+        ]
+        mic_mon_proc = subprocess.Popen(base, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.6)
+        if mic_mon_proc.poll() is not None and mic_mon_proc.returncode != 0:
+            # retry with dsnoop if we can derive it
+            if dev.startswith("plughw:"):
+                tail = dev.split(":",1)[1]
+                try_cmd = [
+                    "gst-launch-1.0","-q","alsasrc",f"device=dsnoop:{tail}",
+                    "do-timestamp=true","buffer-time=200000","latency-time=20000",
+                    "!","audioconvert","!","audioresample","!","autoaudiosink","sync=false"
+                ]
+                mic_mon_proc = subprocess.Popen(try_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(0.6)
+        if mic_mon_proc and mic_mon_proc.poll() is None:
+            return jsonify({"ok": True, "monitoring": True})
+        return jsonify({"ok": False, "error": "failed to start monitor"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.post("/monitor/mic/stop")
+def mic_monitor_stop():
+    global mic_mon_proc
+    try:
+        if mic_mon_proc and mic_mon_proc.poll() is None:
+            try:
+                mic_mon_proc.terminate()
+            except Exception:
+                pass
+            time.sleep(0.2)
+        mic_mon_proc = None
+        return jsonify({"ok": True, "monitoring": False})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)

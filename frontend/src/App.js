@@ -106,6 +106,14 @@ export default function App() {
     apiPost("/restart/backend")
       .then(() => setErr("Backend restarting... if it doesn't come back, restart the service on the Pi."))
       .catch((e) => setErr(e.message || String(e)));
+  const startMicMonitor = () =>
+    apiPost("/monitor/mic/start")
+      .then(() => setErr(""))
+      .catch((e) => setErr(e.message || String(e)));
+  const stopMicMonitor = () =>
+    apiPost("/monitor/mic/stop")
+      .then(() => setErr(""))
+      .catch((e) => setErr(e.message || String(e)));
   const startTx = () =>
     apiPost("/start/tx")
       .then(refreshStatus)
@@ -364,6 +372,8 @@ export default function App() {
           <button type="button" onClick={startRx}>Start RX</button>
           <button type="button" onClick={stopRx}>Stop RX</button>
           <button type="button" onClick={downloadMix}>Download mix</button>
+          <button type="button" onClick={startMicMonitor}>Monitor Mic</button>
+          <button type="button" onClick={stopMicMonitor}>Stop Monitor</button>
         </div>
       </form>
 
