@@ -54,7 +54,9 @@ def start_tx(cfg: dict):
         "gst-launch-1.0","-q",
         *src,
         "!","audioconvert","!","audioresample",
-        "!",*raw_caps,
+        "!",*raw_caps,                # ensure mono/48k/S16LE
+        "!","audioconvert",          # convert endianness for RTP L16
+        "!","audio/x-raw,format=S16BE",
         "!","rtpL16pay","pt=96","min-ptime=4000000","max-ptime=4000000",f"ssrc={ssrc}","!",
         "udpsink",f"host={cfg['tx_multicast']}",f"port={int(cfg['tx_port'])}","auto-multicast=true","ttl=16"
     ]
