@@ -54,12 +54,22 @@ def restart_both():
         time.sleep(0.25)
     except Exception:
         pass
+    try:
+        # Ensure mic monitor isn't holding the capture device
+        micmon.stop()
+    except Exception:
+        pass
     start_tx(cfg)
     return jsonify({"ok": True, "rx": "started", "tx": "started"})
 
 @app.post("/start/tx")
 def start_tx_only():
-    cfg = load_config(); start_tx(cfg)
+    cfg = load_config()
+    try:
+        micmon.stop()
+    except Exception:
+        pass
+    start_tx(cfg)
     return jsonify({"ok": True, "tx": "started"})
 
 @app.post("/start/rx")

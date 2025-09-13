@@ -77,7 +77,8 @@ def start_tx(cfg: dict):
         iface = (cfg.get("tx_iface") or "").strip()
         if iface:
             args.append(f"multicast-iface={iface}")
-        return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Inherit stdout/stderr so errors appear in journal/syslog
+        return subprocess.Popen(args)
 
     # First attempt
     _proc = _launch(src)
@@ -102,6 +103,10 @@ def start_tx(cfg: dict):
                 _proc = _launch(src2)
             except Exception:
                 pass
+    # Final quick check: if process died immediately, raise for API visibility
+    time.sleep(0.3)
+    if _proc.poll() is not None and _proc.returncode != 0:
+        raise RuntimeError("TX mic failed to start. Device may be busy or unsupported. Try selecting a dsnoop: device, stop 'Monitor Mic', or use 'sysdefault'.")
 
 def is_running():
     return _proc is not None and _proc.poll() is None
