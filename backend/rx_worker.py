@@ -33,6 +33,7 @@ class RxPartylineWorker:
         self.sink_path = sink_path
         self.ssrc_names = {int(k): v for k, v in (ssrc_names or {}).items()}
         self.active_peers = {}  # ssrc -> {"name","last_ts","packets","level_db"}
+        self.mix_level_db = None
 
         self.Gst.init(None)
         self.pipeline = self.Gst.Pipeline.new("rx-mix")
@@ -76,8 +77,15 @@ class RxPartylineWorker:
         self.ares = Gst.ElementFactory.make("audioresample", "ares")
         if not self.ares:
             raise RuntimeError("Missing GStreamer element: audioresample (install gstreamer1.0-plugins-base)")
+        # Level meter for the mixed output
+        self.level_mix = Gst.ElementFactory.make("level", "level_mix")
+        if not self.level_mix:
+            raise RuntimeError("Missing GStreamer element: level (install gstreamer1.0-plugins-good)")
+        self.level_mix.set_property("interval", 100_000_000)
+        self.level_mix.set_property("post-messages", True)
+        self.level_mix.set_property("peak-ttl", 500_000_000)
 
-        for e in [self.udpsrc, self.jbuf, self.demux, self.mixer, self.aconv, self.ares]:
+        for e in [self.udpsrc, self.jbuf, self.demux, self.mixer, self.aconv, self.ares, self.level_mix]:
             self.pipeline.add(e)
         self.udpsrc.link(self.jbuf)
         self.jbuf.link(self.demux)
@@ -91,7 +99,8 @@ class RxPartylineWorker:
             self.pipeline.add(self.sink)
             self.mixer.link(self.aconv)
             self.aconv.link(self.ares)
-            self.ares.link(self.sink)
+            self.ares.link(self.level_mix)
+            self.level_mix.link(self.sink)
         else:
             self.wavenc = Gst.ElementFactory.make("wavenc", "wavenc")
             if not self.wavenc:
@@ -104,7 +113,8 @@ class RxPartylineWorker:
             self.pipeline.add(self.sink)
             self.mixer.link(self.aconv)
             self.aconv.link(self.ares)
-            self.ares.link(self.wavenc)
+            self.ares.link(self.level_mix)
+            self.level_mix.link(self.wavenc)
             self.wavenc.link(self.sink)
 
         # Dynamic pads per SSRC
@@ -209,7 +219,9 @@ class RxPartylineWorker:
                         db = None
                 except Exception:
                     db = None
-                if name and name.startswith("level_"):
+                if name == "level_mix":
+                    self.mix_level_db = db
+                elif name and name.startswith("level_"):
                     try:
                         ssrc = int(name.split("_", 1)[1])
                         if ssrc in self.active_peers:
