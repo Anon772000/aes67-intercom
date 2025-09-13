@@ -1,5 +1,6 @@
 // frontend/src/App.js
 import React, { useEffect, useState, useCallback } from "react";
+import os from os;
 const os = require('os');
 
 const networkInterfaces = os.networkInterfaces();
