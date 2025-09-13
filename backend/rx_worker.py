@@ -179,14 +179,20 @@ class RxPartylineWorker:
             print(f"WARN: could not link demux pad to depay for SSRC {ssrc}")
             return
 
-        # Force common format for mixer
-        mix_caps = Gst.Caps.from_string("audio/x-raw,format=S16LE,rate=48000,channels=1")
-        if not depay.link_filtered(aconv, mix_caps):
-            print("WARN: link_filtered failed; falling back to plain link")
-            depay.link(aconv)
-
+        # Convert + resample, then enforce common caps for mixer
+        depay.link(aconv)
         aconv.link(ares)
-        ares.link(lvl)
+        capsfilter = Gst.ElementFactory.make("capsfilter", None)
+        if not capsfilter:
+            print("WARN: capsfilter missing, proceeding without explicit caps")
+            ares.link(lvl)
+        else:
+            mix_caps = Gst.Caps.from_string("audio/x-raw,format=S16LE,rate=48000,channels=1")
+            capsfilter.set_property("caps", mix_caps)
+            self.pipeline.add(capsfilter)
+            capsfilter.sync_state_with_parent()
+            ares.link(capsfilter)
+            capsfilter.link(lvl)
         lvl.link(q)
         q.link(self.mixer)
 
