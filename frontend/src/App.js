@@ -1,15 +1,46 @@
 // frontend/src/App.js
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
-const API_BASE = process.env.REACT_APP_API_BASE || "";
-const api = (path, opts) => fetch(API_BASE + path, opts).then(r => r.json());
+/* -------- API base auto-detect --------
+   - If REACT_APP_API_BASE is set, use it
+   - If running CRA dev server on :3000, default to http://localhost:8080
+   - Otherwise (built UI served by Flask), use same-origin ("")
+--------------------------------------- */
+const guessApiBase = () => {
+  if (process.env.REACT_APP_API_BASE) return process.env.REACT_APP_API_BASE;
+  if (typeof window !== "undefined" && window.location.port === "3000") {
+    return "http://localhost:8080";
+  }
+  return "";
+};
+const API_BASE = guessApiBase();
 
-function DbMeter({ db, width=160 }) {
+async function api(path, opts) {
+  const res = await fetch(API_BASE + path, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`${opts?.method || "GET"} ${path} -> ${res.status} ${t}`);
+  }
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("application/json") ? res.json() : res.text();
+}
+
+function DbMeter({ db, width = 160 }) {
   // Map -60..0 dBFS to 0..100%
-  const v = (db == null || db <= -60) ? 0 : Math.max(0, Math.min(100, 100*(db+60)/60));
+  const v = db == null || db <= -60 ? 0 : Math.max(0, Math.min(100, 100 * (db + 60) / 60));
   return (
     <div style={{ width, height: 10, background: "#eee", borderRadius: 6, overflow: "hidden" }}>
-      <div style={{ width: `${v}%`, height: "100%", background: v>85?"#ef4444":v>60?"#f59e0b":"#10b981" }} />
+      <div
+        style={{
+          width: `${v}%`,
+          height: "100%",
+          background: v > 85 ? "#ef4444" : v > 60 ? "#f59e0b" : "#10b981",
+          transition: "width 120ms linear",
+        }}
+      />
     </div>
   );
 }
@@ -26,69 +57,140 @@ export default function App() {
     rx_multicast: "239.69.69.69",
     rx_port: 5004,
     rx_sink: { mode: "file", path: "mix.wav" },
-    ssrc_names: { "12345678": "Unit A" }
+    ssrc_names: { "12345678": "Unit A" },
   });
   const [status, setStatus] = useState({ tx_running: false, rx_running: false });
-  const [metrics, setMetrics] = useState({ receiving: false, pps_recent: 0, bps_recent: 0, mix_level_db: null });
+  const [metrics, setMetrics] = useState({
+    receiving: false,
+    pps_recent: 0,
+    bps_recent: 0,
+    mix_level_db: null,
+  });
   const [peers, setPeers] = useState([]);
   const [mixDb, setMixDb] = useState(null);
+  const [err, setErr] = useState("");
 
-  const refreshStatus = () =>
-    api("/status").then(s => {
-      setConfig(s.config);
-      setStatus({ tx_running: s.tx_running, rx_running: s.rx_running });
-    }).catch(() => {});
+  const refreshStatus = useCallback(() => {
+    return api("/status")
+      .then((s) => {
+        setConfig(s.config);
+        setStatus({ tx_running: s.tx_running, rx_running: s.rx_running });
+        setErr("");
+      })
+      .catch((e) => setErr(e.message || String(e)));
+  }, []);
 
   useEffect(() => {
     refreshStatus();
-    const t1 = setInterval(() => api("/rx/metrics").then(m => { setMetrics(m); if (m.mix_level_db !== undefined) setMixDb(m.mix_level_db); }).catch(()=>{}), 500);
-    const t2 = setInterval(() => api("/rx/peers").then(r => { setPeers(r.peers || []); if (r.mix_level_db !== undefined) setMixDb(r.mix_level_db); }).catch(()=>{}), 500);
-    return () => { clearInterval(t1); clearInterval(t2); };
-  }, []);
+    const t1 = setInterval(() => {
+      api("/rx/metrics")
+        .then((m) => {
+          setMetrics(m);
+          if (typeof m.mix_level_db === "number") setMixDb(m.mix_level_db);
+          setErr("");
+        })
+        .catch((e) => setErr(e.message || String(e)));
+    }, 500);
+
+    const t2 = setInterval(() => {
+      api("/rx/peers")
+        .then((r) => {
+          setPeers(r.peers || []);
+          if (typeof r.mix_level_db === "number") setMixDb(r.mix_level_db);
+          setErr("");
+        })
+        .catch((e) => setErr(e.message || String(e)));
+    }, 500);
+
+    return () => {
+      clearInterval(t1);
+      clearInterval(t2);
+    };
+  }, [refreshStatus]);
 
   const saveConfig = (e) => {
     e.preventDefault();
     api("/config", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(config)
-    }).then(refreshStatus);
+      body: JSON.stringify(config),
+    })
+      .then(refreshStatus)
+      .catch((e) => setErr(e.message || String(e)));
   };
 
-  const restartBoth = () => api("/restart", { method: "POST" }).then(refreshStatus);
-  const startTx = () => api("/start/tx", { method: "POST" }).then(refreshStatus);
-  const startRx = () => api("/start/rx", { method: "POST" }).then(refreshStatus);
-  const stopTx = () => api("/stop/tx", { method: "POST" }).then(refreshStatus);
-  const stopRx = () => api("/stop/rx", { method: "POST" }).then(refreshStatus);
+  const restartBoth = () =>
+    api("/restart", { method: "POST" })
+      .then(refreshStatus)
+      .catch((e) => setErr(e.message || String(e)));
+  const startTx = () =>
+    api("/start/tx", { method: "POST" })
+      .then(refreshStatus)
+      .catch((e) => setErr(e.message || String(e)));
+  const startRx = () =>
+    api("/start/rx", { method: "POST" })
+      .then(refreshStatus)
+      .catch((e) => setErr(e.message || String(e)));
+  const stopTx = () =>
+    api("/stop/tx", { method: "POST" })
+      .then(refreshStatus)
+      .catch((e) => setErr(e.message || String(e)));
+  const stopRx = () =>
+    api("/stop/rx", { method: "POST" })
+      .then(refreshStatus)
+      .catch((e) => setErr(e.message || String(e)));
 
   const badge = (ok, label) => (
-    <span style={{
-      padding: "2px 8px", borderRadius: 12, marginLeft: 8,
-      background: ok ? "#d1fae5" : "#fee2e2",
-      color: ok ? "#065f46" : "#991b1b", fontWeight: 600, fontSize: 12
-    }}>{label}</span>
+    <span
+      style={{
+        padding: "2px 8px",
+        borderRadius: 12,
+        marginLeft: 8,
+        background: ok ? "#d1fae5" : "#fee2e2",
+        color: ok ? "#065f46" : "#991b1b",
+        fontWeight: 600,
+        fontSize: 12,
+      }}
+    >
+      {label}
+    </span>
   );
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", maxWidth: 980, margin: "2rem auto", lineHeight: 1.4 }}>
       <h1>AES67 Intercom (Party-line)</h1>
 
+      <div style={{ fontSize: 12, color: "#666", margin: "4px 0 12px" }}>
+        API base: <code>{API_BASE || "(same-origin)"}</code>
+      </div>
+
+      {err && (
+        <div style={{ background: "#fee2e2", color: "#7f1d1d", padding: 8, borderRadius: 8, marginBottom: 12 }}>
+          {err}
+        </div>
+      )}
+
       <p>
-        Status: TX {badge(status.tx_running, status.tx_running ? "running" : "stopped")}
-        {" "}· RX {badge(status.rx_running, status.rx_running ? "running" : "stopped")}
-        {" "}· Stream {badge(metrics.receiving, metrics.receiving ? "receiving" : "no packets")}
+        Status: TX {badge(status.tx_running, status.tx_running ? "running" : "stopped")} · RX{" "}
+        {badge(status.rx_running, status.rx_running ? "running" : "stopped")} · Stream{" "}
+        {badge(metrics.receiving, metrics.receiving ? "receiving" : "no packets")}
       </p>
 
-      <div style={{fontSize: 14, color: "#555", marginBottom: 12}}>
-        {metrics.group && (<div>RX group <code>{metrics.group}:{metrics.port}</code></div>)}
-        <div>PPS: {metrics.pps_recent?.toFixed?.(1) || 0} · BPS: {Math.round(metrics.bps_recent || 0)}</div>
+      <div style={{ fontSize: 14, color: "#555", marginBottom: 12 }}>
+        {metrics.group && (
+          <div>
+            RX group <code>{metrics.group}:{metrics.port}</code>
+          </div>
+        )}
+        <div>
+          PPS: {metrics.pps_recent?.toFixed?.(1) || 0} · BPS: {Math.round(metrics.bps_recent || 0)}
+        </div>
       </div>
 
       <div style={{ margin: "8px 0 18px" }}>
-        <div style={{display:"flex", alignItems:"center", gap:12}}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <strong>Mix Level</strong>
           <DbMeter db={mixDb} width={280} />
-          <span style={{minWidth: 60, textAlign: "right"}}>{mixDb!=null ? `${mixDb.toFixed(1)} dBFS` : "--"}</span>
+          <span style={{ minWidth: 60, textAlign: "right" }}>{mixDb != null ? `${mixDb.toFixed(1)} dBFS` : "--"}</span>
         </div>
       </div>
 
@@ -101,7 +203,7 @@ export default function App() {
               Source:
               <select
                 value={config.tx_source || "sine"}
-                onChange={e => setConfig({ ...config, tx_source: e.target.value })}
+                onChange={(e) => setConfig({ ...config, tx_source: e.target.value })}
                 style={{ marginLeft: 8 }}
               >
                 <option value="sine">Sine tone</option>
@@ -113,9 +215,11 @@ export default function App() {
               <label>
                 Freq (Hz):
                 <input
-                  type="number" min={20} max={20000}
+                  type="number"
+                  min={20}
+                  max={20000}
                   value={Number(config.tx_sine_freq ?? 1000)}
-                  onChange={e => setConfig({ ...config, tx_sine_freq: Number(e.target.value || 1000) })}
+                  onChange={(e) => setConfig({ ...config, tx_sine_freq: Number(e.target.value || 1000) })}
                   style={{ marginLeft: 8, width: 120 }}
                 />
               </label>
@@ -127,7 +231,7 @@ export default function App() {
                 <input
                   placeholder="e.g. hw:0 (leave blank to auto)"
                   value={config.tx_mic_device || ""}
-                  onChange={e => setConfig({ ...config, tx_mic_device: e.target.value })}
+                  onChange={(e) => setConfig({ ...config, tx_mic_device: e.target.value })}
                   style={{ marginLeft: 8, width: 200 }}
                 />
               </label>
@@ -137,7 +241,7 @@ export default function App() {
               TX Name:
               <input
                 value={config.tx_name || ""}
-                onChange={e => setConfig({ ...config, tx_name: e.target.value })}
+                onChange={(e) => setConfig({ ...config, tx_name: e.target.value })}
                 style={{ marginLeft: 8, width: 180 }}
               />
             </label>
@@ -147,7 +251,7 @@ export default function App() {
               <input
                 type="number"
                 value={Number(config.tx_ssrc ?? 12345678)}
-                onChange={e => setConfig({ ...config, tx_ssrc: Number(e.target.value || 12345678) })}
+                onChange={(e) => setConfig({ ...config, tx_ssrc: Number(e.target.value || 12345678) })}
                 style={{ marginLeft: 8, width: 160 }}
               />
             </label>
@@ -158,7 +262,7 @@ export default function App() {
               Multicast:
               <input
                 value={config.tx_multicast}
-                onChange={e => setConfig({ ...config, tx_multicast: e.target.value })}
+                onChange={(e) => setConfig({ ...config, tx_multicast: e.target.value })}
                 style={{ marginLeft: 8, width: 220 }}
               />
             </label>
@@ -167,7 +271,7 @@ export default function App() {
               <input
                 type="number"
                 value={config.tx_port}
-                onChange={e => setConfig({ ...config, tx_port: Number(e.target.value) })}
+                onChange={(e) => setConfig({ ...config, tx_port: Number(e.target.value) })}
                 style={{ marginLeft: 8, width: 120 }}
               />
             </label>
@@ -181,7 +285,7 @@ export default function App() {
               Multicast:
               <input
                 value={config.rx_multicast}
-                onChange={e => setConfig({ ...config, rx_multicast: e.target.value })}
+                onChange={(e) => setConfig({ ...config, rx_multicast: e.target.value })}
                 style={{ marginLeft: 8, width: 220 }}
               />
             </label>
@@ -190,7 +294,7 @@ export default function App() {
               <input
                 type="number"
                 value={config.rx_port}
-                onChange={e => setConfig({ ...config, rx_port: Number(e.target.value) })}
+                onChange={(e) => setConfig({ ...config, rx_port: Number(e.target.value) })}
                 style={{ marginLeft: 8, width: 120 }}
               />
             </label>
@@ -200,7 +304,7 @@ export default function App() {
               Sink:
               <select
                 value={config.rx_sink?.mode || "file"}
-                onChange={e => setConfig({ ...config, rx_sink: { ...(config.rx_sink||{}), mode: e.target.value } })}
+                onChange={(e) => setConfig({ ...config, rx_sink: { ...(config.rx_sink || {}), mode: e.target.value } })}
                 style={{ marginLeft: 8 }}
               >
                 <option value="file">Write mixed WAV</option>
@@ -212,7 +316,9 @@ export default function App() {
                 File path:
                 <input
                   value={config.rx_sink?.path || "mix.wav"}
-                  onChange={e => setConfig({ ...config, rx_sink: { ...(config.rx_sink||{}), path: e.target.value } })}
+                  onChange={(e) =>
+                    setConfig({ ...config, rx_sink: { ...(config.rx_sink || {}), path: e.target.value } })
+                  }
                   style={{ marginLeft: 8, width: 260 }}
                 />
               </label>
@@ -248,22 +354,29 @@ export default function App() {
               <td><code>{p.ssrc}</code></td>
               <td>{p.packets}</td>
               <td>
-                <div style={{display:"flex", alignItems:"center", gap:8}}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <DbMeter db={p.level_db} />
-                  <span style={{minWidth: 60, textAlign: "right"}}>{p.level_db!=null ? `${p.level_db.toFixed(1)} dBFS` : "--"}</span>
+                  <span style={{ minWidth: 60, textAlign: "right" }}>
+                    {p.level_db != null ? `${p.level_db.toFixed(1)} dBFS` : "--"}
+                  </span>
                 </div>
               </td>
               <td>{p.last_seen_sec}</td>
             </tr>
           ))}
           {(!peers || peers.length === 0) && (
-            <tr><td colSpan="5" style={{ padding: "8px 0", color: "#666" }}>No talkers detected yet.</td></tr>
+            <tr>
+              <td colSpan="5" style={{ padding: "8px 0", color: "#666" }}>
+                No talkers detected yet.
+              </td>
+            </tr>
           )}
         </tbody>
       </table>
 
       <p style={{ marginTop: 16, color: "#666" }}>
-        Tip: Give each box a unique <b>TX SSRC</b> and <b>TX Name</b>. The receiver maps SSRC → name, and meters show per-talker levels plus the overall mix.
+        Tip: Give each box a unique <b>TX SSRC</b> and <b>TX Name</b>. The receiver maps SSRC → name, and meters show
+        per-talker levels plus the overall mix.
       </p>
     </div>
   );
