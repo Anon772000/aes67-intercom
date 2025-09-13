@@ -87,7 +87,8 @@ def start_rx_internal(cfg):
     sink_mode = (cfg.get("rx_sink") or {}).get("mode","file")
     outpath = Path(__file__).with_name((cfg.get("rx_sink") or {}).get("path","mix.wav"))
     ssrc_names = cfg.get("ssrc_names") or {}
-    rx_worker = RxPartylineWorker(cfg["rx_multicast"], cfg["rx_port"], sink_mode, outpath, ssrc_names)
+    iface = cfg.get("rx_iface")  # Optional: e.g. "eth0"; None/empty means default
+    rx_worker = RxPartylineWorker(cfg["rx_multicast"], cfg["rx_port"], sink_mode, outpath, ssrc_names, iface)
     rx_worker.start()
 
 def stop_rx_internal():

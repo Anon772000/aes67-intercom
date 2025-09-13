@@ -1,34 +1,6 @@
 // frontend/src/App.js
 import React, { useEffect, useState, useCallback } from "react";
-/* -------- API base auto-detect --------
-   - If REACT_APP_API_BASE is set, use it
-   - If running CRA dev server on :3000, default to http://localhost:8080
-   - Otherwise (built UI served by Flask), use same-origin ("")
---------------------------------------- */
-const guessApiBase = () => {
-  if (process.env.REACT_APP_API_BASE) return process.env.REACT_APP_API_BASE;
-  if (typeof window !== "undefined" && window.location.port === "3000") {
-    // Use CRA dev proxy (see frontend/package.json: "proxy") to avoid CORS
-    return "";
-  }
-  return "";
-};
-const API_BASE = guessApiBase();
-
-async function api(path, opts) {
-  const init = { ...(opts || {}) };
-  // Avoid preflight: only set JSON header when sending a body
-  if (init.body && !init.headers?.["Content-Type"]) {
-    init.headers = { "Content-Type": "application/json", ...(init.headers || {}) };
-  }
-  const res = await fetch(API_BASE + path, init);
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`${opts?.method || "GET"} ${path} -> ${res.status} ${t}`);
-  }
-  const ct = res.headers.get("content-type") || "";
-  return ct.includes("application/json") ? res.json() : res.text();
-}
+import { API_BASE, apiGet, apiPost } from "./api";
 
 function DbMeter({ db, width = 160 }) {
   // Map -60..0 dBFS to 0..100%
@@ -73,7 +45,7 @@ export default function App() {
   const [err, setErr] = useState("");
 
   const refreshStatus = useCallback(() => {
-    return api("/status")
+    return apiGet("/status")
       .then((s) => {
         setConfig(s.config);
         setStatus({ tx_running: s.tx_running, rx_running: s.rx_running });
@@ -85,7 +57,8 @@ export default function App() {
   useEffect(() => {
     refreshStatus();
     const t1 = setInterval(() => {
-      api("/rx/metrics")
+      if (typeof document !== "undefined" && document.hidden) return; // pause when hidden
+      apiGet("/rx/metrics")
         .then((m) => {
           setMetrics(m);
           if (typeof m.mix_level_db === "number") setMixDb(m.mix_level_db);
@@ -95,7 +68,8 @@ export default function App() {
     }, 500);
 
     const t2 = setInterval(() => {
-      api("/rx/peers")
+      if (typeof document !== "undefined" && document.hidden) return; // pause when hidden
+      apiGet("/rx/peers")
         .then((r) => {
           setPeers(r.peers || []);
           if (typeof r.mix_level_db === "number") setMixDb(r.mix_level_db);
@@ -112,32 +86,29 @@ export default function App() {
 
   const saveConfig = (e) => {
     e.preventDefault();
-    api("/config", {
-      method: "POST",
-      body: JSON.stringify(config),
-    })
+    apiPost("/config", config)
       .then(refreshStatus)
       .catch((e) => setErr(e.message || String(e)));
   };
 
   const restartBoth = () =>
-    api("/restart", { method: "POST" })
+    apiPost("/restart")
       .then(refreshStatus)
       .catch((e) => setErr(e.message || String(e)));
   const startTx = () =>
-    api("/start/tx", { method: "POST" })
+    apiPost("/start/tx")
       .then(refreshStatus)
       .catch((e) => setErr(e.message || String(e)));
   const startRx = () =>
-    api("/start/rx", { method: "POST" })
+    apiPost("/start/rx")
       .then(refreshStatus)
       .catch((e) => setErr(e.message || String(e)));
   const stopTx = () =>
-    api("/stop/tx", { method: "POST" })
+    apiPost("/stop/tx")
       .then(refreshStatus)
       .catch((e) => setErr(e.message || String(e)));
   const stopRx = () =>
-    api("/stop/rx", { method: "POST" })
+    apiPost("/stop/rx")
       .then(refreshStatus)
       .catch((e) => setErr(e.message || String(e)));
 
@@ -282,25 +253,34 @@ export default function App() {
 
         <fieldset style={{ padding: 12 }}>
           <legend>RX (Party-line: same group, mix all talkers)</legend>
-          <div>
-            <label>
-              Multicast:
-              <input
-                value={config.rx_multicast}
-                onChange={(e) => setConfig({ ...config, rx_multicast: e.target.value })}
-                style={{ marginLeft: 8, width: 220 }}
-              />
-            </label>
-            <label style={{ marginLeft: 12 }}>
-              Port:
-              <input
-                type="number"
-                value={config.rx_port}
-                onChange={(e) => setConfig({ ...config, rx_port: Number(e.target.value) })}
-                style={{ marginLeft: 8, width: 120 }}
-              />
-            </label>
-          </div>
+      <div>
+        <label>
+          Multicast:
+          <input
+            value={config.rx_multicast}
+            onChange={(e) => setConfig({ ...config, rx_multicast: e.target.value })}
+            style={{ marginLeft: 8, width: 220 }}
+          />
+        </label>
+        <label style={{ marginLeft: 12 }}>
+          Port:
+          <input
+            type="number"
+            value={config.rx_port}
+            onChange={(e) => setConfig({ ...config, rx_port: Number(e.target.value) })}
+            style={{ marginLeft: 8, width: 120 }}
+          />
+        </label>
+        <label style={{ marginLeft: 12 }}>
+          Interface (optional):
+          <input
+            placeholder="e.g. eth0"
+            value={config.rx_iface || ""}
+            onChange={(e) => setConfig({ ...config, rx_iface: e.target.value })}
+            style={{ marginLeft: 8, width: 140 }}
+          />
+        </label>
+      </div>
           <div style={{ marginTop: 8 }}>
             <label>
               Sink:
