@@ -1,4 +1,4 @@
-import subprocess
+import subprocess, re
 _proc = None
 
 def stop_tx():
@@ -7,6 +7,27 @@ def stop_tx():
         try: _proc.terminate()
         except Exception: pass
     _proc=None
+
+def _normalize_alsa_device(dev: str) -> str:
+    if not dev:
+        return ""
+    d = dev.strip()
+    # Accept common good forms as-is
+    if d.startswith(("hw:", "plughw:", "default", "sysdefault")):
+        return d
+    # hw0:0 or hw0,0 -> hw:0,0
+    m = re.match(r"^hw(\d+)[,:](\d+)$", d)
+    if m:
+        return f"hw:{m.group(1)},{m.group(2)}"
+    # 0 or 1 -> hw:<card>
+    if re.fullmatch(r"\d+", d):
+        return f"hw:{d}"
+    # 0,0 -> hw:0,0
+    m = re.match(r"^(\d+)[,:](\d+)$", d)
+    if m:
+        return f"hw:{m.group(1)},{m.group(2)}"
+    return d
+
 
 def start_tx(cfg: dict):
     """
@@ -17,7 +38,7 @@ def start_tx(cfg: dict):
     raw_caps = ["audio/x-raw,format=S16LE,channels=1,rate=48000"]
 
     if (cfg.get("tx_source") or "sine") == "mic":
-        dev = (cfg.get("tx_mic_device") or "").strip()
+        dev = _normalize_alsa_device((cfg.get("tx_mic_device") or "").strip())
         src = ["alsasrc"] + ([f"device={dev}"] if dev else [])
         src += ["!", *raw_caps]
     else:
