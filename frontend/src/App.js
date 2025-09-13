@@ -42,6 +42,7 @@ export default function App() {
   });
   const [peers, setPeers] = useState([]);
   const [mixDb, setMixDb] = useState(null);
+  const [micDb, setMicDb] = useState(null);
   const [err, setErr] = useState("");
   const [alsaDevices, setAlsaDevices] = useState([]);
 
@@ -77,11 +78,22 @@ export default function App() {
         .catch((e) => setErr(e.message || String(e)));
     }, 500);
 
-    return () => {
-      clearInterval(t1);
-      clearInterval(t2);
-    };
-  }, [refreshStatus]);
+      return () => {
+        clearInterval(t1);
+        clearInterval(t2);
+      };
+    }, [refreshStatus]);
+
+  // Poll mic VU level
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      apiGet("/monitor/mic/level")
+        .then((v) => setMicDb(typeof v.db === "number" ? v.db : null))
+        .catch(() => {});
+    }, 300);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     if ((config.tx_source || "sine") === "mic") {
@@ -204,6 +216,11 @@ export default function App() {
           <strong>Mix Level</strong>
           <DbMeter db={mixDb} width={280} />
           <span style={{ minWidth: 60, textAlign: "right" }}>{mixDb != null ? `${mixDb.toFixed(1)} dBFS` : "--"}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6 }}>
+          <strong>Mic VU</strong>
+          <DbMeter db={micDb} width={280} />
+          <span style={{ minWidth: 60, textAlign: "right" }}>{micDb != null ? `${micDb.toFixed(1)} dBFS` : "--"}</span>
         </div>
       </div>
 

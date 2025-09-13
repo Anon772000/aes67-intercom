@@ -3,6 +3,7 @@ from flask_cors import CORS
 import traceback
 import os, time, threading, subprocess, shlex
 from pathlib import Path
+from mic_monitor import MicMonitor
 
 from config_store import load_config, save_config
 from monitor import RxMonitor
@@ -14,8 +15,8 @@ app = Flask(__name__, static_folder="../frontend/build", static_url_path="")
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
 
 rx_worker = None
-mic_mon_proc = None
 rxmon = RxMonitor()
+micmon = MicMonitor()
 
 # ---------- API ----------
 @app.get("/status")
@@ -211,55 +212,14 @@ def alsa_devices():
     devices.sort(key=score)
     return jsonify({"devices": devices[:40]})
 
-# ---------- Mic monitor (listen locally) ----------
-def _norm_alsa(dev: str) -> str:
-    d = (dev or "").strip()
-    if not d:
-        return d
-    if d.startswith(("hw:", "plughw:", "default", "sysdefault", "dsnoop:")):
-        return d
-    import re
-    m = re.match(r"^hw(\d+)[,:](\d+)$", d)
-    if m:
-        return f"hw:{m.group(1)},{m.group(2)}"
-    if re.fullmatch(r"\d+", d):
-        return f"hw:{d}"
-    m = re.match(r"^(\d+)[,:](\d+)$", d)
-    if m:
-        return f"hw:{m.group(1)},{m.group(2)}"
-    return d
-
+# ---------- Mic monitor (listen locally + VU) ----------
 @app.post("/monitor/mic/start")
 def mic_monitor_start():
-    global mic_mon_proc
     try:
-        if mic_mon_proc and mic_mon_proc.poll() is None:
-            return jsonify({"ok": True, "monitoring": True, "note": "already running"})
         cfg = load_config()
-        dev = _norm_alsa((cfg.get("tx_mic_device") or ""))
-        # prefer plughw for hw devices
-        if dev.startswith("hw:"):
-            dev = "plughw:" + dev.split(":",1)[1]
-        base = [
-            "gst-launch-1.0","-q","alsasrc",
-            *( [f"device={dev}"] if dev else [] ),
-            "do-timestamp=true","buffer-time=200000","latency-time=20000",
-            "!","audioconvert","!","audioresample","!","autoaudiosink","sync=false"
-        ]
-        mic_mon_proc = subprocess.Popen(base, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(0.6)
-        if mic_mon_proc.poll() is not None and mic_mon_proc.returncode != 0:
-            # retry with dsnoop if we can derive it
-            if dev.startswith("plughw:"):
-                tail = dev.split(":",1)[1]
-                try_cmd = [
-                    "gst-launch-1.0","-q","alsasrc",f"device=dsnoop:{tail}",
-                    "do-timestamp=true","buffer-time=200000","latency-time=20000",
-                    "!","audioconvert","!","audioresample","!","autoaudiosink","sync=false"
-                ]
-                mic_mon_proc = subprocess.Popen(try_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                time.sleep(0.6)
-        if mic_mon_proc and mic_mon_proc.poll() is None:
+        dev = cfg.get("tx_mic_device") or ""
+        ok = micmon.start(dev, with_audio=True)
+        if ok:
             return jsonify({"ok": True, "monitoring": True})
         return jsonify({"ok": False, "error": "failed to start monitor"}), 500
     except Exception as e:
@@ -267,18 +227,18 @@ def mic_monitor_start():
 
 @app.post("/monitor/mic/stop")
 def mic_monitor_stop():
-    global mic_mon_proc
     try:
-        if mic_mon_proc and mic_mon_proc.poll() is None:
-            try:
-                mic_mon_proc.terminate()
-            except Exception:
-                pass
-            time.sleep(0.2)
-        mic_mon_proc = None
+        micmon.stop()
         return jsonify({"ok": True, "monitoring": False})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.get("/monitor/mic/level")
+def mic_monitor_level():
+    try:
+        return jsonify({"db": micmon.get_level()})
+    except Exception as e:
+        return jsonify({"db": None, "error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
