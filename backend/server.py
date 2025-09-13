@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
 import os, time
 from pathlib import Path
 
@@ -8,6 +9,8 @@ from tx import start_tx, stop_tx, is_running as tx_running
 from rx_worker import RxPartylineWorker
 
 app = Flask(__name__, static_folder="../frontend/build", static_url_path="")
+# Enable CORS for development (allows calls from :3000 dev server or other hosts)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
 
 rx_worker = None
 rxmon = RxMonitor()

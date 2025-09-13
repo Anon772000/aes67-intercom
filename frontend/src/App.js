@@ -8,19 +8,20 @@ import React, { useEffect, useState, useCallback } from "react";
 const guessApiBase = () => {
   if (process.env.REACT_APP_API_BASE) return process.env.REACT_APP_API_BASE;
   if (typeof window !== "undefined" && window.location.port === "3000") {
-    const host = window.location.hostname;
-    const hostForUrl = host.includes(":") ? `[${host}]` : host; // IPv6-safe
-    return `http://${hostForUrl}:8080`;
+    // Use CRA dev proxy (see frontend/package.json: "proxy") to avoid CORS
+    return "";
   }
   return "";
 };
 const API_BASE = guessApiBase();
 
 async function api(path, opts) {
-  const res = await fetch(API_BASE + path, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  });
+  const init = { ...(opts || {}) };
+  // Avoid preflight: only set JSON header when sending a body
+  if (init.body && !init.headers?.["Content-Type"]) {
+    init.headers = { "Content-Type": "application/json", ...(init.headers || {}) };
+  }
+  const res = await fetch(API_BASE + path, init);
   if (!res.ok) {
     const t = await res.text().catch(() => "");
     throw new Error(`${opts?.method || "GET"} ${path} -> ${res.status} ${t}`);
