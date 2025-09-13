@@ -11,10 +11,12 @@ DEFAULT_CFG = {
     "tx_ssrc": 12345678,
     "tx_multicast": "239.69.69.69",
     "tx_port": 5004,
+    "tx_iface": None,
 
     "rx_multicast": "239.69.69.69",
     "rx_port": 5004,
     "rx_sink": {"mode": "file", "path": "mix.wav"},
+    "rx_iface": None,
 
     "ssrc_names": { "12345678": "Unit A", "23456789": "Unit B" }
 }

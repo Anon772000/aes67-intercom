@@ -62,8 +62,12 @@ def start_tx(cfg: dict):
             "!","audioconvert",          # convert endianness for RTP L16
             "!","audio/x-raw,format=S16BE",
             "!","rtpL16pay","pt=96","min-ptime=4000000","max-ptime=4000000",f"ssrc={ssrc}","!",
-            "udpsink",f"host={cfg['tx_multicast']}",f"port={int(cfg['tx_port'])}","auto-multicast=true","ttl=16"
+            "udpsink",f"host={cfg['tx_multicast']}",f"port={int(cfg['tx_port'])}",
+            "auto-multicast=true","loop=true","ttl=16"
         ]
+        iface = (cfg.get("tx_iface") or "").strip()
+        if iface:
+            args.append(f"multicast-iface={iface}")
         return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # First attempt

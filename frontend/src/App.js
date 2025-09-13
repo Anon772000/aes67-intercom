@@ -203,7 +203,7 @@ export default function App() {
         <fieldset style={{ padding: 12 }}>
           <legend>TX (Sender)</legend>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <label>
               Source:
               <select
@@ -264,6 +264,15 @@ export default function App() {
                 value={Number(config.tx_ssrc ?? 12345678)}
                 onChange={(e) => setConfig({ ...config, tx_ssrc: Number(e.target.value || 12345678) })}
                 style={{ marginLeft: 8, width: 160 }}
+              />
+            </label>
+            <label>
+              Interface (optional):
+              <input
+                placeholder="e.g. eth0"
+                value={config.tx_iface || ""}
+                onChange={(e) => setConfig({ ...config, tx_iface: e.target.value })}
+                style={{ marginLeft: 8, width: 140 }}
               />
             </label>
           </div>
