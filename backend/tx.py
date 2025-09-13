@@ -39,8 +39,11 @@ def start_tx(cfg: dict):
 
     if (cfg.get("tx_source") or "sine") == "mic":
         dev = _normalize_alsa_device((cfg.get("tx_mic_device") or "").strip())
+        # Prefer plughw to allow software conversion by ALSA if user gave a hw: device
+        if dev.startswith("hw:"):
+            dev = "plughw:" + dev.split(":",1)[1]
         src = ["alsasrc"] + ([f"device={dev}"] if dev else [])
-        src += ["!", *raw_caps]
+        # Do conversion downstream to avoid device open failures on strict hw devices
     else:
         freq = int(cfg.get("tx_sine_freq") or 1000)
         src = ["audiotestsrc","is-live=true","wave=sine",f"freq={freq}","!",*raw_caps]
@@ -49,8 +52,10 @@ def start_tx(cfg: dict):
 
     args = [
         "gst-launch-1.0","-q",
-        *src,"!","audioconvert","!","audioresample","!",
-        "rtpL16pay","pt=96","min-ptime=4000000","max-ptime=4000000",f"ssrc={ssrc}","!",
+        *src,
+        "!","audioconvert","!","audioresample",
+        "!",*raw_caps,
+        "!","rtpL16pay","pt=96","min-ptime=4000000","max-ptime=4000000",f"ssrc={ssrc}","!",
         "udpsink",f"host={cfg['tx_multicast']}",f"port={int(cfg['tx_port'])}","auto-multicast=true","ttl=16"
     ]
     _proc = subprocess.Popen(args)
