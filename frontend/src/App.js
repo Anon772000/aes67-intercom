@@ -93,6 +93,10 @@ export default function App() {
     apiPost("/restart")
       .then(refreshStatus)
       .catch((e) => setErr(e.message || String(e)));
+  const restartBackend = () =>
+    apiPost("/restart/backend")
+      .then(() => setErr("Backend restarting... if it doesn't come back, restart the service on the Pi."))
+      .catch((e) => setErr(e.message || String(e)));
   const startTx = () =>
     apiPost("/start/tx")
       .then(refreshStatus)
@@ -330,6 +334,7 @@ export default function App() {
         <div style={{ display: "flex", gap: "0.5rem", marginTop: 8, flexWrap: "wrap" }}>
           <button type="submit">Save config</button>
           <button type="button" onClick={restartBoth}>Restart TX+RX</button>
+          <button type="button" onClick={restartBackend}>Restart Backend</button>
           <button type="button" onClick={startTx}>Start TX</button>
           <button type="button" onClick={stopTx}>Stop TX</button>
           <button type="button" onClick={startRx}>Start RX</button>

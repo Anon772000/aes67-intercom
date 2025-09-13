@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import traceback
-import os, time
+import os, time, threading
 from pathlib import Path
 
 from config_store import load_config, save_config
@@ -90,6 +90,19 @@ def stop_tx_only():
 @app.post("/stop/rx")
 def stop_rx_only():
     stop_rx_internal(); return jsonify({"ok": True, "rx": "stopped"})
+
+@app.post("/restart/backend")
+def restart_backend():
+    # Respond immediately, then exit process so an external manager can restart it
+    def _do_exit():
+        try:
+            time.sleep(0.5)
+        except Exception:
+            pass
+        os._exit(0)
+
+    threading.Thread(target=_do_exit, daemon=True).start()
+    return jsonify({"ok": True, "backend": "restarting"})
 
 @app.get("/rx/metrics")
 def rx_metrics():

@@ -1,0 +1,22 @@
+[Unit]
+Description=AES67 Intercom backend (Gunicorn + Flask + GStreamer)
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=harrison
+Group=audio
+WorkingDirectory=/opt/aes67-intercom/backend
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/usr/lib/python3/dist-packages
+Environment=PATH=/opt/aes67-intercom/backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/aes67-intercom/backend/venv/bin/gunicorn -b 0.0.0.0:8080 --workers 1 --threads 2 --timeout 120 server:app
+Restart=always
+RestartSec=2
+KillMode=control-group
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target
+
