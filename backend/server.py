@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import traceback
-import os, time, threading
+import os, time, threading, subprocess, shlex
 from pathlib import Path
 
 from config_store import load_config, save_config
@@ -169,6 +169,46 @@ def download_mix():
         return resp
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.get("/alsa/devices")
+def alsa_devices():
+    """List ALSA PCM device strings useful for capture (best-effort).
+    Returns { devices: [ { id, desc } ] }
+    """
+    devices = []
+    seen = set()
+    try:
+        # arecord -L: logical devices (default, sysdefault, plughw, dsnoop, ...)
+        p = subprocess.run(["arecord","-L"], capture_output=True, text=True, timeout=3)
+        lines = p.stdout.splitlines()
+        cur_id = None
+        for ln in lines:
+            if not ln.strip():
+                continue
+            if not ln.startswith(" ") and not ln.startswith("\t"):
+                cur_id = ln.strip()
+                if cur_id == "null":
+                    cur_id = None
+                    continue
+                if cur_id not in seen:
+                    seen.add(cur_id)
+                    devices.append({"id": cur_id, "desc": ""})
+            elif devices and cur_id:
+                # First indented line is description
+                if not devices[-1]["desc"]:
+                    devices[-1]["desc"] = ln.strip()
+    except Exception:
+        pass
+    # Prioritize commonly useful capture devices
+    def score(d):
+        s = d["id"].lower()
+        if s.startswith("sysdefault") or s == "default": return 0
+        if s.startswith("plughw"): return 1
+        if s.startswith("dsnoop"): return 2
+        if s.startswith("hw"): return 3
+        return 4
+    devices.sort(key=score)
+    return jsonify({"devices": devices[:40]})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)

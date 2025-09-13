@@ -43,6 +43,7 @@ export default function App() {
   const [peers, setPeers] = useState([]);
   const [mixDb, setMixDb] = useState(null);
   const [err, setErr] = useState("");
+  const [alsaDevices, setAlsaDevices] = useState([]);
 
   const refreshStatus = useCallback(() => {
     return apiGet("/status")
@@ -81,6 +82,14 @@ export default function App() {
       clearInterval(t2);
     };
   }, [refreshStatus]);
+
+  useEffect(() => {
+    if ((config.tx_source || "sine") === "mic") {
+      apiGet("/alsa/devices")
+        .then((d) => setAlsaDevices(d.devices || []))
+        .catch(() => {});
+    }
+  }, [config.tx_source]);
 
   const saveConfig = (e) => {
     e.preventDefault();
@@ -225,11 +234,17 @@ export default function App() {
               <label>
                 ALSA device:
                 <input
-                  placeholder="e.g. hw:0 (leave blank to auto)"
+                  list="alsa-devices"
+                  placeholder="leave blank for default"
                   value={config.tx_mic_device || ""}
                   onChange={(e) => setConfig({ ...config, tx_mic_device: e.target.value })}
-                  style={{ marginLeft: 8, width: 200 }}
+                  style={{ marginLeft: 8, width: 260 }}
                 />
+                <datalist id="alsa-devices">
+                  {alsaDevices.map((d, i) => (
+                    <option key={i} value={d.id}>{d.desc || d.id}</option>
+                  ))}
+                </datalist>
               </label>
             )}
 
