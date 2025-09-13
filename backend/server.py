@@ -220,7 +220,14 @@ def alsa_devices():
         if s.startswith("hw"): return 3
         return 4
     devices.sort(key=score)
-    return jsonify({"devices": devices[:40]})
+    # Recommend dsnoop for IQaudIOCODEC cards (CODEC Zero) to allow sharing and proper format
+    rec = None
+    for d in devices:
+        sid = (d.get("id") or "").lower()
+        if sid.startswith("dsnoop:") and "iqaudiocodec" in sid:
+            rec = d["id"]
+            break
+    return jsonify({"devices": devices[:40], "recommended": rec})
 
 # ---------- Mic monitor (listen locally + VU) ----------
 @app.post("/monitor/mic/start")

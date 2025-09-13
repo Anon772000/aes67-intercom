@@ -6,7 +6,7 @@ CONFIG_PATH = Path(__file__).with_name("config.json")
 DEFAULT_CFG = {
     "tx_source": "sine",          # "sine" | "mic"
     "tx_sine_freq": 1000,         # Hz
-    "tx_mic_device": "hw:0",      # ALSA device; blank = auto
+    "tx_mic_device": "",          # ALSA device; blank = auto (UI may suggest dsnoop on IQaudIO CODEC)
     "tx_name": "Unit A",
     "tx_ssrc": 12345678,
     "tx_multicast": "239.69.69.69",

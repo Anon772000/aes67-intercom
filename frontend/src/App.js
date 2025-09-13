@@ -45,6 +45,7 @@ export default function App() {
   const [micDb, setMicDb] = useState(null);
   const [err, setErr] = useState("");
   const [alsaDevices, setAlsaDevices] = useState([]);
+  const [alsaRec, setAlsaRec] = useState("");
 
   const refreshStatus = useCallback(() => {
     return apiGet("/status")
@@ -98,10 +99,20 @@ export default function App() {
   useEffect(() => {
     if ((config.tx_source || "sine") === "mic") {
       apiGet("/alsa/devices")
-        .then((d) => setAlsaDevices(d.devices || []))
+        .then((d) => {
+          setAlsaDevices(d.devices || []);
+          setAlsaRec(d.recommended || "");
+        })
         .catch(() => {});
     }
   }, [config.tx_source]);
+
+  // If mic selected and no device set, prefill with recommended
+  useEffect(() => {
+    if ((config.tx_source || "sine") === "mic" && !config.tx_mic_device && alsaRec) {
+      setConfig({ ...config, tx_mic_device: alsaRec });
+    }
+  }, [alsaRec, config.tx_source]);
 
   const saveConfig = (e) => {
     e.preventDefault();
@@ -270,6 +281,11 @@ export default function App() {
                     <option key={i} value={d.id}>{d.desc || d.id}</option>
                   ))}
                 </datalist>
+                {alsaRec && (
+                  <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
+                    Recommended for IQaudIO CODEC: <code>{alsaRec}</code> (device outputs S32_LE stereo; app downmixes to mono)
+                  </div>
+                )}
               </label>
             )}
 
