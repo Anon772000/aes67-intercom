@@ -153,8 +153,10 @@ class RxPartylineWorker:
         except Exception:
             print(f"WARN: could not parse SSRC from pad name: {name}")
             ssrc = None
+            lvl_name = None
         else:
             print(f"RX demux SSRC detected: {ssrc}")
+            lvl_name = f"level_{ssrc}"
 
         depay = Gst.ElementFactory.make("rtpL16depay", None)
         if not depay:
@@ -165,7 +167,8 @@ class RxPartylineWorker:
         ares = Gst.ElementFactory.make("audioresample", None)
         if not ares:
             raise RuntimeError("Missing GStreamer element: audioresample (install gstreamer1.0-plugins-base)")
-        lvl = Gst.ElementFactory.make("level", None)  # per-talker level meter
+        # per-talker level meter; set element name at creation so bus messages carry it
+        lvl = Gst.ElementFactory.make("level", lvl_name) if lvl_name else Gst.ElementFactory.make("level", None)
         if not lvl:
             raise RuntimeError("Missing GStreamer element: level (install gstreamer1.0-plugins-good)")
         # Post messages ~10 times/sec, RMS over window
@@ -238,10 +241,7 @@ class RxPartylineWorker:
 
         sinkpad.add_probe(Gst.PadProbeType.BUFFER, _probe_cb)
 
-        # Listen for level messages tagged with this branch
-        # We'll set a custom name on 'lvl' and look for it in bus messages
-        lvl_name = f"level_{ssrc}"
-        lvl.set_property("name", lvl_name)
+        # Listen for level messages tagged with this branch (name set at creation)
 
     def _bus_loop(self):
         Gst = self.Gst
