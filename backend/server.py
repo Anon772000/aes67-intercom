@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import traceback
 import os, time
@@ -87,10 +87,11 @@ def stop_rx_only():
 
 @app.get("/rx/metrics")
 def rx_metrics():
-    m = rxmon.read_stats()
     if rx_worker is not None:
-        m["mix_level_db"] = rx_worker.mix_level_db
-    return jsonify(m)
+        m = rx_worker.metrics_snapshot()
+        m["mix_level_db"] = getattr(rx_worker, "mix_level_db", None)
+        return jsonify(m)
+    return jsonify(rxmon.read_stats())
 
 @app.get("/rx/peers")
 def rx_peers():
@@ -105,7 +106,6 @@ def rx_peers():
 def start_rx_internal(cfg):
     global rx_worker
     stop_rx_internal()
-    rxmon.start(cfg["rx_multicast"], cfg["rx_port"])
     sink_mode = (cfg.get("rx_sink") or {}).get("mode","file")
     outpath = Path(__file__).with_name((cfg.get("rx_sink") or {}).get("path","mix.wav"))
     ssrc_names = cfg.get("ssrc_names") or {}
@@ -132,6 +132,24 @@ def serve_frontend(path):
     if os.path.exists(index):
         return send_from_directory(build_dir, "index.html")
     return jsonify({"ok": True, "api": "running", "hint": "Use CRA dev server with proxy or build the frontend."})
+
+@app.get("/download/mix")
+def download_mix():
+    # Prefer the live worker's path; otherwise use configured default
+    p = None
+    try:
+        if rx_worker is not None and getattr(rx_worker, "sink_path", None):
+            p = Path(rx_worker.sink_path)
+        else:
+            cfg = load_config()
+            p = Path(__file__).with_name((cfg.get("rx_sink") or {}).get("path", "mix.wav"))
+        if not p.is_file():
+            return jsonify({"ok": False, "error": f"File not found: {p}"}), 404
+        resp = send_file(p, mimetype="audio/wav", as_attachment=True, download_name=p.name)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)

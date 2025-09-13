@@ -1,6 +1,8 @@
 # backend/rx_worker.py
 import time
 from pathlib import Path
+from collections import deque
+import threading
 
 class RxPartylineWorker:
     """
@@ -34,6 +36,10 @@ class RxPartylineWorker:
         self.ssrc_names = {int(k): v for k, v in (ssrc_names or {}).items()}
         self.active_peers = {}  # ssrc -> {"name","last_ts","packets","level_db"}
         self.mix_level_db = None
+        self._stats_lock = threading.Lock()
+        self._window = deque()  # (ts, bytes)
+        self._WINDOW_SEC = 2.0
+        self.stats = {"packets_total":0,"bytes_total":0,"pps_recent":0.0,"bps_recent":0.0,"last_packet_ts":None}
 
         self.Gst.init(None)
         self.pipeline = self.Gst.Pipeline.new("rx-mix")
@@ -192,9 +198,32 @@ class RxPartylineWorker:
         sinkpad = depay.get_static_pad("sink")
 
         def _probe_cb(_pad, info):
+            now = time.time()
             if ssrc in self.active_peers:
                 self.active_peers[ssrc]["packets"] += 1
-                self.active_peers[ssrc]["last_ts"] = time.time()
+                self.active_peers[ssrc]["last_ts"] = now
+            # Update global metrics window
+            try:
+                buf = info.get_buffer()
+                n = int(buf.get_size()) if buf is not None else 0
+            except Exception:
+                n = 0
+            with self._stats_lock:
+                self.stats["packets_total"] += 1
+                self.stats["bytes_total"] += n
+                self.stats["last_packet_ts"] = now
+                self._window.append((now, n))
+                cutoff = now - self._WINDOW_SEC
+                while self._window and self._window[0][0] < cutoff:
+                    self._window.popleft()
+                if self._window:
+                    dt = max(1e-6, self._window[-1][0] - self._window[0][0])
+                    pps = len(self._window) / dt
+                    bps = sum(sz for _, sz in self._window) / dt
+                else:
+                    pps = bps = 0.0
+                self.stats["pps_recent"] = pps
+                self.stats["bps_recent"] = bps
             return Gst.PadProbeReturn.OK
 
         sinkpad.add_probe(Gst.PadProbeType.BUFFER, _probe_cb)
@@ -241,6 +270,13 @@ class RxPartylineWorker:
         self.pipeline.set_state(self.Gst.State.PLAYING)
 
     def stop(self):
+        # Try to gracefully finalize WAV (if used)
+        try:
+            self.pipeline.send_event(self.Gst.Event.new_eos())
+            bus = self.pipeline.get_bus()
+            bus.timed_pop_filtered(2 * self.Gst.SECOND, self.Gst.MessageType.EOS)
+        except Exception:
+            pass
         self.pipeline.set_state(self.Gst.State.NULL)
 
     def peers_snapshot(self):
@@ -257,3 +293,11 @@ class RxPartylineWorker:
             })
         # sort by name, then ssrc for stability
         return sorted(out, key=lambda x: (x["name"] or "", x["ssrc"] or 0))
+
+    def metrics_snapshot(self):
+        with self._stats_lock:
+            s = dict(self.stats)
+        s["group"] = self.group
+        s["port"] = self.port
+        s["receiving"] = (s["last_packet_ts"] is not None) and ((time.time() - s["last_packet_ts"]) < 2.5)
+        return s

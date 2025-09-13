@@ -313,6 +313,13 @@ export default function App() {
           <button type="button" onClick={stopTx}>Stop TX</button>
           <button type="button" onClick={startRx}>Start RX</button>
           <button type="button" onClick={stopRx}>Stop RX</button>
+          <a
+            href={`${API_BASE}/download/mix`}
+            style={{ textDecoration: "none" }}
+            download
+          >
+            <button type="button">Download mix</button>
+          </a>
         </div>
       </form>
 
