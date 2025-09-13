@@ -46,8 +46,14 @@ def update_config():
 @app.post("/restart")
 def restart_both():
     cfg = load_config()
-    start_tx(cfg); start_rx_internal(cfg)
-    return jsonify({"ok": True, "tx": "started", "rx": "started"})
+    # Start RX first to ensure IGMP join and jitterbuffer are ready, then TX
+    start_rx_internal(cfg)
+    try:
+        time.sleep(0.25)
+    except Exception:
+        pass
+    start_tx(cfg)
+    return jsonify({"ok": True, "rx": "started", "tx": "started"})
 
 @app.post("/start/tx")
 def start_tx_only():

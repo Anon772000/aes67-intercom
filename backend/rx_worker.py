@@ -75,8 +75,12 @@ class RxPartylineWorker:
         if not self.jbuf:
             raise RuntimeError("Missing GStreamer element: rtpjitterbuffer (install gstreamer1.0-plugins-base)")
         self.jbuf.set_property("mode", 2)       # 2=slave to RTP timestamps
-        self.jbuf.set_property("latency", 50)   # ms jitter buffer
+        self.jbuf.set_property("latency", 100)  # ms jitter buffer (increased for stable lock)
         self.jbuf.set_property("do-lost", True)
+        try:
+            self.jbuf.set_property("drop-on-late", True)
+        except Exception:
+            pass
 
         self.demux = Gst.ElementFactory.make("rtpssrcdemux", "demux")
         if not self.demux:
@@ -279,7 +283,11 @@ class RxPartylineWorker:
 
     def start(self):
         self._stop_evt.clear()
+        # Bring up pipeline and wait until it's PLAYING to improve stability
+        self.pipeline.set_state(self.Gst.State.PAUSED)
+        self.pipeline.get_state(timeout=2 * self.Gst.SECOND)
         self.pipeline.set_state(self.Gst.State.PLAYING)
+        self.pipeline.get_state(timeout=2 * self.Gst.SECOND)
         if not self._bus_thread or not self._bus_thread.is_alive():
             self._bus_thread = threading.Thread(target=self._bus_loop, daemon=True)
             self._bus_thread.start()
