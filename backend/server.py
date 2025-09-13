@@ -55,8 +55,23 @@ def start_tx_only():
 
 @app.post("/start/rx")
 def start_rx_only():
-    cfg = load_config(); start_rx_internal(cfg)
-    return jsonify({"ok": True, "rx": "started"})
+    cfg = load_config()
+    try:
+        start_rx_internal(cfg)
+        return jsonify({"ok": True, "rx": "started"})
+    except ModuleNotFoundError as e:
+        err = str(e)
+        if "gi" in err.lower():
+            hint = (
+                "GStreamer Python bindings not found. Install: "
+                "sudo apt update && sudo apt install -y python3-gi gir1.2-gst-1.0 "
+                "gstreamer1.0-tools gstreamer1.0-alsa gstreamer1.0-plugins-base "
+                "gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly"
+            )
+            return jsonify({"ok": False, "error": err, "hint": hint}), 500
+        return jsonify({"ok": False, "error": err}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.post("/stop/tx")
 def stop_tx_only():
