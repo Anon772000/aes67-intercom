@@ -49,6 +49,11 @@ class RxPartylineWorker:
         self.udpsrc.set_property("multicast-group", self.group)
         self.udpsrc.set_property("port", self.port)
         self.udpsrc.set_property("auto-multicast", True)
+        # Allow sharing the port with our monitor socket
+        try:
+            self.udpsrc.set_property("reuse", True)
+        except Exception:
+            pass
         if self.iface:
             # requires gstreamer >=1.14
             self.udpsrc.set_property("multicast-iface", self.iface)
