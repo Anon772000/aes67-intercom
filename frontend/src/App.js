@@ -1,6 +1,9 @@
 // frontend/src/App.js
 import React, { useEffect, useState, useCallback } from "react";
+const os = require('os');
 
+const networkInterfaces = os.networkInterfaces();
+const ip = networkInterfaces['eth0'][0]['address']
 /* -------- API base auto-detect --------
    - If REACT_APP_API_BASE is set, use it
    - If running CRA dev server on :3000, default to http://localhost:8080
@@ -9,7 +12,7 @@ import React, { useEffect, useState, useCallback } from "react";
 const guessApiBase = () => {
   if (process.env.REACT_APP_API_BASE) return process.env.REACT_APP_API_BASE;
   if (typeof window !== "undefined" && window.location.port === "3000") {
-    return "http://127.0.0.1:8080";
+    return "http://" + ip + ":8080";
   }
   return "";
 };
