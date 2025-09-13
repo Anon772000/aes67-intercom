@@ -96,7 +96,10 @@ def rx_metrics():
 def rx_peers():
     if rx_worker is None:
         return jsonify({"peers": [], "mix_level_db": None})
-    return jsonify(rx_worker.peers_snapshot())
+    return jsonify({
+        "peers": rx_worker.peers_snapshot(),
+        "mix_level_db": getattr(rx_worker, "mix_level_db", None)
+    })
 
 # ---------- helpers ----------
 def start_rx_internal(cfg):

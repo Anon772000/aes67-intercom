@@ -143,6 +143,8 @@ class RxPartylineWorker:
         except Exception:
             print(f"WARN: could not parse SSRC from pad name: {name}")
             ssrc = None
+        else:
+            print(f"RX demux SSRC detected: {ssrc}")
 
         depay = Gst.ElementFactory.make("rtpL16depay", None)
         if not depay:
