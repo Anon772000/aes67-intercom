@@ -17,7 +17,11 @@ async function request(path, opts) {
     init.headers = { 'Content-Type': 'application/json', ...(init.headers || {}) };
   }
   const res = await fetch(`${API_BASE}${path}`, init);
-  if (!res.ok) throw new Error(`${opts?.method || 'GET'} ${path} -> ${res.status}`);
+  if (!res.ok) {
+    let t = '';
+    try { t = await res.text(); } catch {}
+    throw new Error(`${init.method || 'GET'} ${path} -> ${res.status}${t ? ' ' + t : ''}`);
+  }
   // Some endpoints return no JSON; guard it:
   const ct = res.headers.get('content-type') || '';
   return ct.includes('application/json') ? res.json() : res.text();

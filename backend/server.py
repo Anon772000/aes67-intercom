@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+import traceback
 import os, time
 from pathlib import Path
 
@@ -68,9 +69,12 @@ def start_rx_only():
                 "gstreamer1.0-tools gstreamer1.0-alsa gstreamer1.0-plugins-base "
                 "gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly"
             )
+            print("/start/rx error (gi missing):\n" + traceback.format_exc())
             return jsonify({"ok": False, "error": err, "hint": hint}), 500
+        print("/start/rx error:\n" + traceback.format_exc())
         return jsonify({"ok": False, "error": err}), 500
     except Exception as e:
+        print("/start/rx error (generic):\n" + traceback.format_exc())
         return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.post("/stop/tx")

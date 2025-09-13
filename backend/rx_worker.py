@@ -36,6 +36,8 @@ class RxPartylineWorker:
 
         # udpsrc: use multicast-group (modern) and optionally multicast-iface
         self.udpsrc = Gst.ElementFactory.make("udpsrc", "src")
+        if not self.udpsrc:
+            raise RuntimeError("Missing GStreamer element: udpsrc (install gstreamer1.0-plugins-base)")
         self.udpsrc.set_property("multicast-group", self.group)
         self.udpsrc.set_property("port", self.port)
         self.udpsrc.set_property("auto-multicast", True)
@@ -49,14 +51,24 @@ class RxPartylineWorker:
         self.udpsrc.set_property("caps", caps)
 
         self.jbuf = Gst.ElementFactory.make("rtpjitterbuffer", "jbuf")
+        if not self.jbuf:
+            raise RuntimeError("Missing GStreamer element: rtpjitterbuffer (install gstreamer1.0-plugins-base)")
         self.jbuf.set_property("mode", 2)       # 2=slave to RTP timestamps
         self.jbuf.set_property("latency", 50)   # ms jitter buffer
         self.jbuf.set_property("do-lost", True)
 
         self.demux = Gst.ElementFactory.make("rtpssrcdemux", "demux")
+        if not self.demux:
+            raise RuntimeError("Missing GStreamer element: rtpssrcdemux (install gstreamer1.0-plugins-good)")
         self.mixer = Gst.ElementFactory.make("audiomixer", "mixer")
+        if not self.mixer:
+            raise RuntimeError("Missing GStreamer element: audiomixer (install gstreamer1.0-plugins-good)")
         self.aconv = Gst.ElementFactory.make("audioconvert", "aconv")
+        if not self.aconv:
+            raise RuntimeError("Missing GStreamer element: audioconvert (install gstreamer1.0-plugins-base)")
         self.ares = Gst.ElementFactory.make("audioresample", "ares")
+        if not self.ares:
+            raise RuntimeError("Missing GStreamer element: audioresample (install gstreamer1.0-plugins-base)")
 
         for e in [self.udpsrc, self.jbuf, self.demux, self.mixer, self.aconv, self.ares]:
             self.pipeline.add(e)
@@ -66,6 +78,8 @@ class RxPartylineWorker:
         # Tail sink (mix -> convert -> resample -> sink)
         if self.sink_mode == "auto":
             self.sink = Gst.ElementFactory.make("autoaudiosink", "sink")
+            if not self.sink:
+                raise RuntimeError("Missing GStreamer element: autoaudiosink (install gstreamer1.0-alsa or proper audio sink)")
             self.sink.set_property("sync", True)
             self.pipeline.add(self.sink)
             self.mixer.link(self.aconv)
@@ -73,7 +87,11 @@ class RxPartylineWorker:
             self.ares.link(self.sink)
         else:
             self.wavenc = Gst.ElementFactory.make("wavenc", "wavenc")
+            if not self.wavenc:
+                raise RuntimeError("Missing GStreamer element: wavenc (install gstreamer1.0-plugins-good)")
             self.sink = Gst.ElementFactory.make("filesink", "fsink")
+            if not self.sink:
+                raise RuntimeError("Missing GStreamer element: filesink (install gstreamer1.0-plugins-base)")
             self.sink.set_property("location", str(self.sink_path))
             self.pipeline.add(self.wavenc)
             self.pipeline.add(self.sink)
@@ -105,9 +123,17 @@ class RxPartylineWorker:
             ssrc = None
 
         depay = Gst.ElementFactory.make("rtpL16depay", None)
+        if not depay:
+            raise RuntimeError("Missing GStreamer element: rtpL16depay (install gstreamer1.0-plugins-good)")
         aconv = Gst.ElementFactory.make("audioconvert", None)
+        if not aconv:
+            raise RuntimeError("Missing GStreamer element: audioconvert (install gstreamer1.0-plugins-base)")
         ares = Gst.ElementFactory.make("audioresample", None)
+        if not ares:
+            raise RuntimeError("Missing GStreamer element: audioresample (install gstreamer1.0-plugins-base)")
         lvl = Gst.ElementFactory.make("level", None)  # per-talker level meter
+        if not lvl:
+            raise RuntimeError("Missing GStreamer element: level (install gstreamer1.0-plugins-good)")
         # Post messages ~10 times/sec, RMS over window
         lvl.set_property("interval", 100_000_000)  # 100ms in ns
         lvl.set_property("post-messages", True)
