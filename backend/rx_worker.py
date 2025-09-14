@@ -71,17 +71,6 @@ class RxPartylineWorker:
         )
         self.udpsrc.set_property("caps", caps)
 
-        self.jbuf = Gst.ElementFactory.make("rtpjitterbuffer", "jbuf")
-        if not self.jbuf:
-            raise RuntimeError("Missing GStreamer element: rtpjitterbuffer (install gstreamer1.0-plugins-base)")
-        self.jbuf.set_property("mode", 2)       # 2=slave to RTP timestamps
-        self.jbuf.set_property("latency", 100)  # ms jitter buffer (increased for stable lock)
-        self.jbuf.set_property("do-lost", True)
-        try:
-            self.jbuf.set_property("drop-on-late", True)
-        except Exception:
-            pass
-
         self.demux = Gst.ElementFactory.make("rtpssrcdemux", "demux")
         if not self.demux:
             raise RuntimeError("Missing GStreamer element: rtpssrcdemux (install gstreamer1.0-plugins-good)")
@@ -102,10 +91,9 @@ class RxPartylineWorker:
         self.level_mix.set_property("post-messages", True)
         self.level_mix.set_property("peak-ttl", 500_000_000)
 
-        for e in [self.udpsrc, self.jbuf, self.demux, self.mixer, self.aconv, self.ares, self.level_mix]:
+        for e in [self.udpsrc, self.demux, self.mixer, self.aconv, self.ares, self.level_mix]:
             self.pipeline.add(e)
-        self.udpsrc.link(self.jbuf)
-        self.jbuf.link(self.demux)
+        self.udpsrc.link(self.demux)
 
         # Tail sink (mix -> convert -> resample -> sink)
         if self.sink_mode == "auto":
@@ -158,6 +146,19 @@ class RxPartylineWorker:
             print(f"RX demux SSRC detected: {ssrc}")
             lvl_name = f"level_{ssrc}"
 
+        # Per-SSRC jitterbuffer BEFORE depay, not one global buffer
+        jbuf = Gst.ElementFactory.make("rtpjitterbuffer", None)
+        if not jbuf:
+            print("WARN: missing rtpjitterbuffer element for SSRC", name)
+            return
+        jbuf.set_property("mode", 2)       # 2=slave to RTP timestamps
+        jbuf.set_property("latency", 100)  # ms jitter buffer (per talker)
+        jbuf.set_property("do-lost", True)
+        try:
+            jbuf.set_property("drop-on-late", True)
+        except Exception:
+            pass
+
         depay = Gst.ElementFactory.make("rtpL16depay", None)
         if not depay:
             raise RuntimeError("Missing GStreamer element: rtpL16depay (install gstreamer1.0-plugins-good)")
@@ -177,13 +178,16 @@ class RxPartylineWorker:
         lvl.set_property("peak-ttl", 500_000_000)
         q = Gst.ElementFactory.make("queue", None)
 
-        for e in [depay, aconv, ares, lvl, q]:
+        for e in [jbuf, depay, aconv, ares, lvl, q]:
             self.pipeline.add(e)
             e.sync_state_with_parent()
 
-        # Link demux:pad -> depay
-        if not pad.link(depay.get_static_pad("sink")) == Gst.PadLinkReturn.OK:
-            print(f"WARN: could not link demux pad to depay for SSRC {ssrc}")
+        # Link demux:pad -> jbuf -> depay
+        if not pad.link(jbuf.get_static_pad("sink")) == Gst.PadLinkReturn.OK:
+            print(f"WARN: could not link demux pad to jitterbuffer for SSRC {ssrc}")
+            return
+        if not jbuf.link(depay):
+            print(f"WARN: could not link jitterbuffer to depay for SSRC {ssrc}")
             return
 
         # Convert + resample, then enforce common caps for mixer
