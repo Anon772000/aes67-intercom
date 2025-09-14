@@ -4,6 +4,7 @@ set -euo pipefail
 SERVICE_NAME=${SERVICE_NAME:-aes67-intercom}
 FRONTEND_DEV=${FRONTEND_DEV:-no}   # yes|no
 FRONTEND_SERVICE_NAME=${FRONTEND_SERVICE_NAME:-aes67-frontend}
+FRONTEND_LOG=${FRONTEND_LOG:-/var/log/${FRONTEND_SERVICE_NAME}.log}
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
 BACKEND_DIR="$REPO_DIR/backend"
 FRONTEND_DIR="$REPO_DIR/frontend"
@@ -142,6 +143,9 @@ systemctl enable --now "$SERVICE_NAME"
 if [[ "$FRONTEND_DEV" == "yes" ]]; then
   echo "==> Installing frontend dev service ($FRONTEND_SERVICE_NAME)"
   FE_UNIT_PATH="/etc/systemd/system/${FRONTEND_SERVICE_NAME}.service"
+  # Prepare log file
+  touch "$FRONTEND_LOG" || true
+  chown "$SERVICE_USER":"$SERVICE_USER" "$FRONTEND_LOG" || true
   cat > "$FE_UNIT_PATH" <<FEUNIT
 [Unit]
 Description=AES67 Intercom frontend (CRA dev server)
@@ -161,6 +165,9 @@ Environment=DISABLE_ESLINT_PLUGIN=true
 # Auto-install deps if react-scripts missing
 ExecStartPre=/usr/bin/env sh -lc 'test -x node_modules/.bin/react-scripts || ( [ -f package-lock.json ] && npm ci || npm install )'
 ExecStart=/usr/bin/env npm start
+StandardOutput=append:${FRONTEND_LOG}
+StandardError=append:${FRONTEND_LOG}
+SyslogIdentifier=${FRONTEND_SERVICE_NAME}
 Restart=always
 RestartSec=2
 KillMode=control-group

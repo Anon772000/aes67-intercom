@@ -159,11 +159,18 @@ def start_rx_internal(cfg):
 
 def stop_rx_internal():
     global rx_worker
-    if rx_worker:
-        try: rx_worker.stop()
-        except Exception: pass
-    rx_worker=None
-    rxmon.stop()
+    # Detach first so /status reflects stopped immediately
+    worker = rx_worker
+    rx_worker = None
+    try:
+        rxmon.stop()
+    except Exception:
+        pass
+    if worker:
+        try:
+            worker.stop()
+        except Exception:
+            pass
 
 # ---------- Static (React) ----------
 @app.route("/", defaults={"path": ""})
