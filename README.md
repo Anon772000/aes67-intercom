@@ -22,6 +22,7 @@ Frontend dev server (recommended while developing):
   - Access UI at `http://<pi-ip>:3000` (API proxied to backend on :8080)
   - To name the frontend unit: `--frontend-name web-intercom`
   - Stop backend static serving is not required; dev server takes precedence when you visit :3000.
+  - The service auto-installs npm dependencies on boot if missing (ExecStartPre); first boot may take a while on a Pi.
 
 Manual steps (equivalent to the script):
 - `cd /opt/aes67-intercom/backend`

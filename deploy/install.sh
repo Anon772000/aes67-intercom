@@ -152,15 +152,19 @@ Wants=network-online.target
 Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${FRONTEND_DIR}
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=HOST=0.0.0.0
 Environment=PORT=3000
 Environment=CHOKIDAR_USEPOLLING=1
 Environment=BROWSER=none
 Environment=DISABLE_ESLINT_PLUGIN=true
+# Auto-install deps if react-scripts missing
+ExecStartPre=/usr/bin/env sh -lc 'test -x node_modules/.bin/react-scripts || ( [ -f package-lock.json ] && npm ci || npm install )'
 ExecStart=/usr/bin/env npm start
 Restart=always
 RestartSec=2
 KillMode=control-group
+TimeoutStartSec=0
 TimeoutStopSec=5
 
 [Install]
