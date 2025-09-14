@@ -10,7 +10,20 @@ Prereqs:
 - Python venv: `/opt/aes67-intercom/backend/venv`
 - Run as user: `harrison` (add to `audio` group if using ALSA)
 
-Setup venv + packages (on the Pi):
+Quick install (on the Pi):
+- `cd /opt/aes67-intercom`
+- `sudo ./deploy/install.sh`  # builds frontend if npm is available
+- Custom unit name: `sudo ./deploy/install.sh --name intercom-prod`
+  - Or via env: `sudo SERVICE_NAME=intercom-prod ./deploy/install.sh`
+
+Frontend dev server (recommended while developing):
+- Run CRA dev server under systemd alongside the backend:
+  - `sudo ./deploy/install.sh --frontend-dev`
+  - Access UI at `http://<pi-ip>:3000` (API proxied to backend on :8080)
+  - To name the frontend unit: `--frontend-name web-intercom`
+  - Stop backend static serving is not required; dev server takes precedence when you visit :3000.
+
+Manual steps (equivalent to the script):
 - `cd /opt/aes67-intercom/backend`
 - `python3 -m venv --system-site-packages venv`
 - `source venv/bin/activate`
@@ -32,3 +45,4 @@ Notes:
 - The service runs Gunicorn on `0.0.0.0:8080` with 1 worker and 2 threads.
 - `PYTHONPATH=/usr/lib/python3/dist-packages` is set so apt-installed `python3-gi` (GStreamer) is importable in the venv.
 - The UI “Restart Backend” button exits the process; with `Restart=always`, systemd brings it back automatically.
+ - If you’re using the IQaudIO CODEC Zero, configure capture in `alsamixer -c 0` (F4) and enable Mic Bias if needed, then `sudo alsactl store`.

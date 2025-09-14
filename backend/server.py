@@ -17,6 +17,8 @@ CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
 rx_worker = None
 rxmon = RxMonitor()
 micmon = MicMonitor()
+_update_lock = threading.Lock()
+_update_state = {"running": False, "ok": None, "branch": "", "output": ""}
 
 # ---------- API ----------
 @app.get("/status")
@@ -227,7 +229,7 @@ def alsa_devices():
         if sid.startswith("dsnoop:") and "iqaudiocodec" in sid:
             rec = d["id"]
             break
-    return jsonify({"devices": devices[:40], "recommended": rec})
+  return jsonify({"devices": devices[:40], "recommended": rec})
 
 # ---------- Mic monitor (listen locally + VU) ----------
 @app.post("/monitor/mic/start")
@@ -254,8 +256,89 @@ def mic_monitor_stop():
 def mic_monitor_level():
     try:
         return jsonify({"db": micmon.get_level()})
+  except Exception as e:
+      return jsonify({"db": None, "error": str(e)}), 500
+
+# ---------- Repo update (git pull) ----------
+def _run_update_thread(repo: Path, do_deps: bool, do_build: bool):
+    global _update_state
+    def run(cmd, cwd=None, timeout=180):
+        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        ok = (p.returncode == 0)
+        out = (p.stdout or "") + (p.stderr or "")
+        _update_state["output"] += f"$ {' '.join(cmd)}\n{out}\n"
+        return ok
+
+    try:
+        with _update_lock:
+            _update_state.update({"running": True, "ok": None, "branch": "", "output": ""})
+        # git branch/fetch/pull
+        ok_branch = run(["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "HEAD"], timeout=60)
+        branch = subprocess.run(["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip()
+        _update_state["branch"] = branch
+        ok_fetch = run(["git", "-C", str(repo), "fetch", "--all", "--prune"], timeout=120)
+        # Capture file changes to decide optional steps
+        prev = subprocess.run(["git", "-C", str(repo), "rev-parse", "@{1}"], capture_output=True, text=True)
+        prev_rev = prev.stdout.strip() if prev.returncode == 0 else ""
+        ok_pull = run(["git", "-C", str(repo), "pull", "--ff-only"], timeout=120)
+        changed = []
+        if prev_rev:
+            diff = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", f"{prev_rev}..HEAD"], capture_output=True, text=True)
+            changed = [ln.strip() for ln in (diff.stdout or "").splitlines() if ln.strip()]
+        # deps/build conditions
+        backend_changed = any(p.startswith("backend/") for p in changed)
+        reqs_changed = any(p == "backend/requirements.txt" for p in changed)
+        frontend_changed = any(p.startswith("frontend/") for p in changed)
+
+        # pip install
+        if do_deps or reqs_changed or backend_changed:
+            venv_pip = repo / "backend" / "venv" / "bin" / "pip"
+            pip_cmd = [str(venv_pip)] if venv_pip.exists() else ["pip3"]
+            pip_cmd += ["install", "-r", str(repo / "backend" / "requirements.txt")]
+            run(pip_cmd, timeout=900)
+
+        # frontend build
+        if do_build or frontend_changed:
+            fe = repo / "frontend"
+            if (fe / "package.json").exists():
+                # install
+                if (fe / "package-lock.json").exists():
+                    run(["npm", "ci"], cwd=str(fe), timeout=1200)
+                else:
+                    run(["npm", "install"], cwd=str(fe), timeout=1500)
+                # build
+                run(["npm", "run", "build"], cwd=str(fe), timeout=1800)
+            else:
+                _update_state["output"] += "frontend/package.json not found; skipping build.\n"
+
+        ok_all = ok_branch and ok_fetch and ok_pull
+        with _update_lock:
+            _update_state["ok"] = ok_all
+            _update_state["running"] = False
     except Exception as e:
-        return jsonify({"db": None, "error": str(e)}), 500
+        with _update_lock:
+            _update_state["output"] += f"ERROR: {e}\n"
+            _update_state["ok"] = False
+            _update_state["running"] = False
+
+@app.post("/update")
+def update_repo():
+    repo = Path(__file__).resolve().parent.parent
+    opts = request.get_json(silent=True) or {}
+    do_deps = bool(opts.get("deps"))
+    do_build = bool(opts.get("build"))
+    with _update_lock:
+        if _update_state.get("running"):
+            return jsonify({"ok": False, "error": "update already running"}), 409
+        _update_state.update({"running": True, "ok": None, "branch": "", "output": ""})
+    t = threading.Thread(target=_run_update_thread, args=(repo, do_deps, do_build), daemon=True)
+    t.start()
+    return jsonify({"ok": True, "started": True})
+
+@app.get("/update/status")
+def update_status():
+    with _update_lock:
+        return jsonify(dict(_update_state))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)

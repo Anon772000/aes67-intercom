@@ -46,6 +46,8 @@ export default function App() {
   const [err, setErr] = useState("");
   const [alsaDevices, setAlsaDevices] = useState([]);
   const [alsaRec, setAlsaRec] = useState("");
+  const [fullUpdate, setFullUpdate] = useState(false);
+  const [updRunning, setUpdRunning] = useState(false);
 
   const refreshStatus = useCallback(() => {
     return apiGet("/status")
@@ -129,6 +131,29 @@ export default function App() {
     apiPost("/restart/backend")
       .then(() => setErr("Backend restarting... if it doesn't come back, restart the service on the Pi."))
       .catch((e) => setErr(e.message || String(e)));
+  const updateRepo = () => {
+    setErr("");
+    apiPost("/update", { deps: fullUpdate, build: fullUpdate })
+      .then(() => {
+        setUpdRunning(true);
+      })
+      .catch((e) => setErr(e.message || String(e)));
+  };
+
+  useEffect(() => {
+    if (!updRunning) return;
+    const iv = setInterval(() => {
+      apiGet("/update/status")
+        .then((s) => {
+          if (!s.running) {
+            setUpdRunning(false);
+            setErr(s.ok ? `Update complete (branch ${s.branch || ""})` : (s.output || "Update failed"));
+          }
+        })
+        .catch(() => {});
+    }, 1500);
+    return () => clearInterval(iv);
+  }, [updRunning]);
   const startMicMonitor = () =>
     apiPost("/monitor/mic/start")
       .then(() => setErr(""))
@@ -400,6 +425,13 @@ export default function App() {
           <button type="submit">Save config</button>
           <button type="button" onClick={restartBoth}>Restart TX+RX</button>
           <button type="button" onClick={restartBackend}>Restart Backend</button>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" checked={fullUpdate} onChange={(e) => setFullUpdate(e.target.checked)} />
+            Full update (deps + build)
+          </label>
+          <button type="button" onClick={updateRepo} disabled={updRunning}>
+            {updRunning ? "Updating..." : "Update (git pull)"}
+          </button>
           <button type="button" onClick={startTx}>Start TX</button>
           <button type="button" onClick={stopTx}>Stop TX</button>
           <button type="button" onClick={startRx}>Start RX</button>

@@ -66,8 +66,9 @@ class RxPartylineWorker:
             # requires gstreamer >=1.14
             self.udpsrc.set_property("multicast-iface", self.iface)
 
+        # Accept any L16 audio RTP regardless of payload number or channel count; normalize per-SSRC later
         caps = Gst.Caps.from_string(
-            "application/x-rtp,media=audio,encoding-name=L16,payload=96,clock-rate=48000,channels=1"
+            "application/x-rtp,media=audio,encoding-name=L16,clock-rate=48000"
         )
         self.udpsrc.set_property("caps", caps)
 
