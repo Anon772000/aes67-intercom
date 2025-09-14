@@ -106,6 +106,10 @@ else
   echo "==> Skipping frontend build (BUILD_FRONTEND=$BUILD_FRONTEND)"
 fi
 
+# Ensure frontend files are owned by service user so dev server can write caches
+echo "==> Fixing ownership for frontend files"
+chown -R "$SERVICE_USER":"$SERVICE_USER" "$FRONTEND_DIR" || true
+
 echo "==> Installing systemd service"
 UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 cat > "$UNIT_PATH" <<UNIT
@@ -152,6 +156,7 @@ Environment=HOST=0.0.0.0
 Environment=PORT=3000
 Environment=CHOKIDAR_USEPOLLING=1
 Environment=BROWSER=none
+Environment=DISABLE_ESLINT_PLUGIN=true
 ExecStart=/usr/bin/env npm start
 Restart=always
 RestartSec=2

@@ -66,9 +66,9 @@ class RxPartylineWorker:
             # requires gstreamer >=1.14
             self.udpsrc.set_property("multicast-iface", self.iface)
 
-        # Accept any L16 audio RTP regardless of payload number or channel count; normalize per-SSRC later
+        # Accept any audio RTP; normalize per-SSRC later based on pad caps
         caps = Gst.Caps.from_string(
-            "application/x-rtp,media=audio,encoding-name=L16,clock-rate=48000"
+            "application/x-rtp,media=audio"
         )
         self.udpsrc.set_property("caps", caps)
 
@@ -144,7 +144,9 @@ class RxPartylineWorker:
             ssrc = None
             lvl_name = None
         else:
-            print(f"RX demux SSRC detected: {ssrc}")
+            caps = pad.get_current_caps()
+            caps_str = caps.to_string() if caps else ""
+            print(f"RX demux SSRC detected: {ssrc} caps: {caps_str}")
             lvl_name = f"level_{ssrc}"
 
         # Per-SSRC jitterbuffer BEFORE depay, not one global buffer
@@ -160,9 +162,25 @@ class RxPartylineWorker:
         except Exception:
             pass
 
-        depay = Gst.ElementFactory.make("rtpL16depay", None)
+        # Choose depayloader based on encoding-name (L16/L24)
+        depay = None
+        enc = None
+        try:
+            ccaps = pad.get_current_caps()
+            if ccaps and ccaps.get_size() > 0:
+                st = ccaps.get_structure(0)
+                enc = st.get_string("encoding-name")
+        except Exception:
+            enc = None
+        if enc and enc.upper() == "L24":
+            depay = Gst.ElementFactory.make("rtpL24depay", None)
+            if not depay:
+                print("WARN: missing rtpL24depay; falling back to rtpL16depay")
+                depay = Gst.ElementFactory.make("rtpL16depay", None)
+        else:
+            depay = Gst.ElementFactory.make("rtpL16depay", None)
         if not depay:
-            raise RuntimeError("Missing GStreamer element: rtpL16depay (install gstreamer1.0-plugins-good)")
+            raise RuntimeError("Missing GStreamer depay (rtpL16depay/rtpL24depay). Install gstreamer1.0-plugins-good.")
         aconv = Gst.ElementFactory.make("audioconvert", None)
         if not aconv:
             raise RuntimeError("Missing GStreamer element: audioconvert (install gstreamer1.0-plugins-base)")
