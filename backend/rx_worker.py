@@ -163,14 +163,24 @@ class RxPartylineWorker:
         except Exception:
             pass
 
-        # Choose depayloader based on encoding-name (L16/L24)
+        # Choose depayloader based on encoding-name (L16/L24) and set defaults if caps missing fields
         depay = None
         enc = None
+        channels_in_caps = None
+        rate_in_caps = None
         try:
             ccaps = pad.get_current_caps()
             if ccaps and ccaps.get_size() > 0:
                 st = ccaps.get_structure(0)
                 enc = st.get_string("encoding-name")
+                try:
+                    channels_in_caps = st.get_value("channels")
+                except Exception:
+                    channels_in_caps = None
+                try:
+                    rate_in_caps = st.get_value("clock-rate")
+                except Exception:
+                    rate_in_caps = None
         except Exception:
             enc = None
         if enc and enc.upper() == "L24":
@@ -182,6 +192,12 @@ class RxPartylineWorker:
             depay = Gst.ElementFactory.make("rtpL16depay", None)
         if not depay:
             raise RuntimeError("Missing GStreamer depay (rtpL16depay/rtpL24depay). Install gstreamer1.0-plugins-good.")
+        # If channels not specified in caps, assume mono to avoid not-negotiated
+        try:
+            if channels_in_caps is None:
+                depay.set_property("channels", 1)
+        except Exception:
+            pass
         aconv = Gst.ElementFactory.make("audioconvert", None)
         if not aconv:
             raise RuntimeError("Missing GStreamer element: audioconvert (install gstreamer1.0-plugins-base)")
