@@ -20,6 +20,17 @@ micmon = MicMonitor()
 _update_lock = threading.Lock()
 _update_state = {"running": False, "ok": None, "branch": "", "output": ""}
 
+# Replace any NaN/Inf in responses with null to keep JSON valid
+import math
+def _sanitize(obj):
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
+
 # ---------- API ----------
 @app.get("/status")
 def status():
@@ -123,17 +134,17 @@ def rx_metrics():
     if rx_worker is not None:
         m = rx_worker.metrics_snapshot()
         m["mix_level_db"] = getattr(rx_worker, "mix_level_db", None)
-        return jsonify(m)
-    return jsonify(rxmon.read_stats())
+        return jsonify(_sanitize(m))
+    return jsonify(_sanitize(rxmon.read_stats()))
 
 @app.get("/rx/peers")
 def rx_peers():
     if rx_worker is None:
         return jsonify({"peers": [], "mix_level_db": None})
-    return jsonify({
+    return jsonify(_sanitize({
         "peers": rx_worker.peers_snapshot(),
         "mix_level_db": getattr(rx_worker, "mix_level_db", None)
-    })
+    }))
 
 # ---------- helpers ----------
 def start_rx_internal(cfg):

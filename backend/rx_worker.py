@@ -294,12 +294,20 @@ class RxPartylineWorker:
                     except Exception:
                         db = None
                     if name == "level_mix":
-                        self.mix_level_db = db
+                        try:
+                            import math
+                            self.mix_level_db = db if (db is not None and math.isfinite(db)) else None
+                        except Exception:
+                            self.mix_level_db = None
                     elif name and name.startswith("level_"):
                         try:
                             ssrc = int(name.split("_", 1)[1])
                             if ssrc in self.active_peers:
-                                self.active_peers[ssrc]["level_db"] = db
+                                try:
+                                    import math
+                                    self.active_peers[ssrc]["level_db"] = db if (db is not None and math.isfinite(db)) else None
+                                except Exception:
+                                    self.active_peers[ssrc]["level_db"] = None
                                 self.active_peers[ssrc]["last_ts"] = time.time()
                         except Exception:
                             pass
@@ -336,11 +344,21 @@ class RxPartylineWorker:
         out = []
         for ssrc, rec in list(self.active_peers.items()):
             idle = now - rec["last_ts"] if rec["last_ts"] else 999
+            # Sanitize per-talker level (avoid NaN/Inf)
+            try:
+                import math
+                ld = rec["level_db"]
+                if ld is None or not math.isfinite(ld):
+                    ld_out = None
+                else:
+                    ld_out = round(ld, 1)
+            except Exception:
+                ld_out = None
             out.append({
                 "ssrc": ssrc,
                 "name": rec["name"],
                 "packets": rec["packets"],
-                "level_db": None if rec["level_db"] is None else round(rec["level_db"], 1),
+                "level_db": ld_out,
                 "last_seen_sec": round(idle, 2)
             })
         # sort by name, then ssrc for stability
