@@ -229,7 +229,7 @@ def alsa_devices():
         if sid.startswith("dsnoop:") and "iqaudiocodec" in sid:
             rec = d["id"]
             break
-  return jsonify({"devices": devices[:40], "recommended": rec})
+    return jsonify({"devices": devices[:40], "recommended": rec})
 
 # ---------- Mic monitor (listen locally + VU) ----------
 @app.post("/monitor/mic/start")
@@ -256,8 +256,8 @@ def mic_monitor_stop():
 def mic_monitor_level():
     try:
         return jsonify({"db": micmon.get_level()})
-  except Exception as e:
-      return jsonify({"db": None, "error": str(e)}), 500
+    except Exception as e:
+        return jsonify({"db": None, "error": str(e)}), 500
 
 # ---------- Repo update (git pull) ----------
 def _run_update_thread(repo: Path, do_deps: bool, do_build: bool):
