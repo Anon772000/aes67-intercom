@@ -47,6 +47,7 @@ export default function App() {
   const [alsaDevices, setAlsaDevices] = useState([]);
   const [alsaRec, setAlsaRec] = useState("");
   const [fullUpdate, setFullUpdate] = useState(false);
+  const [forceUpdate, setForceUpdate] = useState(false);
   const [updRunning, setUpdRunning] = useState(false);
 
   const refreshStatus = useCallback(() => {
@@ -133,7 +134,7 @@ export default function App() {
       .catch((e) => setErr(e.message || String(e)));
   const updateRepo = () => {
     setErr("");
-    apiPost("/update", { deps: fullUpdate, build: fullUpdate })
+    apiPost("/update", { deps: fullUpdate, build: fullUpdate, autostash: !forceUpdate, force: forceUpdate })
       .then(() => {
         setUpdRunning(true);
       })
@@ -428,6 +429,10 @@ export default function App() {
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <input type="checkbox" checked={fullUpdate} onChange={(e) => setFullUpdate(e.target.checked)} />
             Full update (deps + build)
+          </label>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" checked={forceUpdate} onChange={(e) => setForceUpdate(e.target.checked)} />
+            Force (discard local changes)
           </label>
           <button type="button" onClick={updateRepo} disabled={updRunning}>
             {updRunning ? "Updating..." : "Update (git pull)"}

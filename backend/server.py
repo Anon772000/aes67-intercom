@@ -260,7 +260,7 @@ def mic_monitor_level():
         return jsonify({"db": None, "error": str(e)}), 500
 
 # ---------- Repo update (git pull) ----------
-def _run_update_thread(repo: Path, do_deps: bool, do_build: bool):
+def _run_update_thread(repo: Path, do_deps: bool, do_build: bool, autostash: bool, force: bool):
     global _update_state
     def run(cmd, cwd=None, timeout=180):
         p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
@@ -273,17 +273,32 @@ def _run_update_thread(repo: Path, do_deps: bool, do_build: bool):
         with _update_lock:
             _update_state.update({"running": True, "ok": None, "branch": "", "output": ""})
         # git branch/fetch/pull
-        ok_branch = run(["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "HEAD"], timeout=60)
-        branch = subprocess.run(["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip()
+        ok_branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(repo), timeout=60)
+        branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(repo), capture_output=True, text=True).stdout.strip()
         _update_state["branch"] = branch
-        ok_fetch = run(["git", "-C", str(repo), "fetch", "--all", "--prune"], timeout=120)
+        ok_fetch = run(["git", "fetch", "--all", "--prune"], cwd=str(repo), timeout=120)
         # Capture file changes to decide optional steps
-        prev = subprocess.run(["git", "-C", str(repo), "rev-parse", "@{1}"], capture_output=True, text=True)
+        prev = subprocess.run(["git", "rev-parse", "@{1}"], cwd=str(repo), capture_output=True, text=True)
         prev_rev = prev.stdout.strip() if prev.returncode == 0 else ""
-        ok_pull = run(["git", "-C", str(repo), "pull", "--ff-only"], timeout=120)
+        ok_pull = run(["git", "pull", "--ff-only"], cwd=str(repo), timeout=120)
+        stash_ref = ""
+        if not ok_pull and autostash:
+            # Stash local changes (including untracked), then try pull again
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            run(["git", "stash", "push", "-u", "-m", f"web-update-{ts}"], cwd=str(repo), timeout=120)
+            # Get top stash ref for info
+            st_list = subprocess.run(["git", "stash", "list"], cwd=str(repo), capture_output=True, text=True)
+            if st_list.returncode == 0 and st_list.stdout:
+                stash_ref = st_list.stdout.splitlines()[0].split(":", 1)[0].strip()
+            ok_pull = run(["git", "pull", "--ff-only"], cwd=str(repo), timeout=120)
+        if not ok_pull and force and branch:
+            # Destructive: discard local changes and hard reset to remote branch
+            run(["git", "reset", "--hard"], cwd=str(repo), timeout=60)
+            ok_fetch = run(["git", "fetch", "--all", "--prune"], cwd=str(repo), timeout=120)
+            ok_pull = run(["git", "reset", "--hard", f"origin/{branch}"], cwd=str(repo), timeout=120)
         changed = []
         if prev_rev:
-            diff = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", f"{prev_rev}..HEAD"], capture_output=True, text=True)
+            diff = subprocess.run(["git", "diff", "--name-only", f"{prev_rev}..HEAD"], cwd=str(repo), capture_output=True, text=True)
             changed = [ln.strip() for ln in (diff.stdout or "").splitlines() if ln.strip()]
         # deps/build conditions
         backend_changed = any(p.startswith("backend/") for p in changed)
@@ -311,6 +326,8 @@ def _run_update_thread(repo: Path, do_deps: bool, do_build: bool):
             else:
                 _update_state["output"] += "frontend/package.json not found; skipping build.\n"
 
+        if stash_ref:
+            _update_state["output"] += f"Autostashed local changes as {stash_ref}. Use 'git stash pop' to reapply if desired.\n"
         ok_all = ok_branch and ok_fetch and ok_pull
         with _update_lock:
             _update_state["ok"] = ok_all
@@ -327,11 +344,13 @@ def update_repo():
     opts = request.get_json(silent=True) or {}
     do_deps = bool(opts.get("deps"))
     do_build = bool(opts.get("build"))
+    autostash = bool(opts.get("autostash", True))
+    force = bool(opts.get("force", False))
     with _update_lock:
         if _update_state.get("running"):
             return jsonify({"ok": False, "error": "update already running"}), 409
         _update_state.update({"running": True, "ok": None, "branch": "", "output": ""})
-    t = threading.Thread(target=_run_update_thread, args=(repo, do_deps, do_build), daemon=True)
+    t = threading.Thread(target=_run_update_thread, args=(repo, do_deps, do_build, autostash, force), daemon=True)
     t.start()
     return jsonify({"ok": True, "started": True})
 
