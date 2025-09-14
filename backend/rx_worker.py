@@ -66,9 +66,10 @@ class RxPartylineWorker:
             # requires gstreamer >=1.14
             self.udpsrc.set_property("multicast-iface", self.iface)
 
-        # Accept any audio RTP; normalize per-SSRC later based on pad caps
+        # AES67 default: L16 at 48kHz. Set explicit RTP caps so depay loaders can negotiate.
+        # If you need L24, we can make this configurable.
         caps = Gst.Caps.from_string(
-            "application/x-rtp,media=audio"
+            "application/x-rtp,media=audio,encoding-name=L16,clock-rate=48000"
         )
         self.udpsrc.set_property("caps", caps)
 
